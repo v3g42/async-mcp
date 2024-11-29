@@ -4,7 +4,9 @@ Main repo from Anthropic: [MCP](https://github.com/modelcontextprotocol)
 
 ## Minimalistic approach
 Given it is still very early stage of MCP adoption, the goal is to remain agile and easy to understand.
-This implementation favors simplicity and ease of understanding to capture the core idea of MCP while maintaining compatibility with Claude Desktop.
+This implementation aims to capture the core idea of MCP while maintaining compatibility with Claude Desktop.
+Many optional features are not implemented yet.
+
 Some guidelines:
 - use primitive building blocks and avoid framework if possible
 - keep it simple and stupid
@@ -18,6 +20,7 @@ For complete feature please refer to the [MCP specification](https://spec.modelc
 ## Features
 ### Basic Protocol
 - [x] Basic Message Types
+- [ ] Error and Signal Handling
 - Transport
     - [x] Stdio
     - [ ] In Memory Channel (not yet supported in formal specification)
