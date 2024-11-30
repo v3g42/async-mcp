@@ -60,3 +60,5 @@ Modify the `claude_desktop_config.json` file to include the following configurat
 }
 ```
 Save the file, and restart Claude Desktop.
+## What will it look like
+<img width="546" alt="Screenshot 2024-11-30 at 12 44 19 PM" src="https://github.com/user-attachments/assets/24a9f249-1d79-4c34-ba65-59aa59705a2b">
