@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "examples/file_system"]
+
+# Your existing package configuration stays here
 [package]
 name = "mcp-sdk"
 version = "0.0.1"
@@ -7,3 +11,10 @@ repository = "https://github.com/AntigmaLabs"
 
 license = "Apache-2.0"
 [dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+async-trait = "0.1"
+url = { version = "2.5", features = ["serde"] }
+tracing = "0.1"
