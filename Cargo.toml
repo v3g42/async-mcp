@@ -4,7 +4,7 @@ members = [".", "examples/file_system"]
 # Your existing package configuration stays here
 [package]
 name = "mcp-sdk"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 description = "Rust Implementation of Model Context Protocol (MCP)"
 repository = "https://github.com/AntigmaLabs"
