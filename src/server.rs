@@ -9,6 +9,7 @@ use super::{
     },
 };
 use anyhow::Result;
+use serde::{de::DeserializeOwned, Serialize};
 
 #[derive(Clone)]
 pub struct ServerState {
@@ -22,22 +23,13 @@ pub struct Server<T: Transport> {
     protocol: Protocol<T>,
     state: Arc<RwLock<ServerState>>,
 }
-pub struct ServerOptions {
+
+pub struct ServerBuilder<T: Transport> {
+    protocol: ProtocolBuilder<T>,
     server_info: Implementation,
     capabilities: ServerCapabilities,
 }
-impl Default for ServerOptions {
-    fn default() -> Self {
-        Self {
-            server_info: Implementation {
-                name: env!("CARGO_PKG_NAME").to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-            },
-            capabilities: Default::default(),
-        }
-    }
-}
-impl ServerOptions {
+impl<T: Transport> ServerBuilder<T> {
     pub fn name<S: Into<String>>(mut self, name: S) -> Self {
         self.server_info.name = name.into();
         self
@@ -52,10 +44,51 @@ impl ServerOptions {
         self.capabilities = capabilities;
         self
     }
+
+    /// Register a typed request handler
+    pub fn request_handler<Req, Resp>(
+        mut self,
+        method: &str,
+        handler: impl Fn(Req) -> Result<Resp> + Send + Sync + 'static,
+    ) -> Self
+    where
+        Req: DeserializeOwned + Send + Sync + 'static,
+        Resp: Serialize + Send + Sync + 'static,
+    {
+        self.protocol = self.protocol.request_handler(method, handler);
+        self
+    }
+
+    pub fn notification_handler<N>(
+        mut self,
+        method: &str,
+        handler: impl Fn(N) -> Result<()> + Send + Sync + 'static,
+    ) -> Self
+    where
+        N: DeserializeOwned + Send + Sync + 'static,
+    {
+        self.protocol = self.protocol.notification_handler(method, handler);
+        self
+    }
+
+    pub fn build(self) -> Server<T> {
+        Server::new(self)
+    }
 }
 
 impl<T: Transport> Server<T> {
-    pub fn new(protocol: ProtocolBuilder<T>, options: ServerOptions) -> Self {
+    pub fn builder(transport: T) -> ServerBuilder<T> {
+        ServerBuilder {
+            protocol: Protocol::builder(transport),
+            server_info: Implementation {
+                name: env!("CARGO_PKG_NAME").to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            },
+            capabilities: Default::default(),
+        }
+    }
+
+    fn new(builder: ServerBuilder<T>) -> Self {
         let state = Arc::new(RwLock::new(ServerState {
             client_capabilities: None,
             client_info: None,
@@ -63,10 +96,11 @@ impl<T: Transport> Server<T> {
         }));
 
         // Initialize protocol with handlers
-        let protocol = protocol
+        let protocol = builder
+            .protocol
             .request_handler(
                 "initialize",
-                Self::handle_init(state.clone(), options.server_info, options.capabilities),
+                Self::handle_init(state.clone(), builder.server_info, builder.capabilities),
             )
             .notification_handler(
                 "notifications/initialized",

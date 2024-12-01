@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use mcp_sdk::protocol::Protocol;
-use mcp_sdk::server::{Server, ServerOptions};
+use mcp_sdk::server::Server;
 use mcp_sdk::transport::StdioTransport;
 use mcp_sdk::types::{
     CallToolRequest, CallToolResponse, ListRequest, ServerCapabilities, ToolResponseContent,
@@ -19,17 +18,15 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
     let transport = StdioTransport;
-    let protocol = Protocol::builder(transport.clone())
-        .request_handler("tools/list", list_tools)
-        .request_handler("tools/call", call_tool);
 
-    let server = Server::new(
-        protocol,
-        ServerOptions::default().capabilities(ServerCapabilities {
+    let server = Server::builder(transport)
+        .capabilities(ServerCapabilities {
             tools: Some(json!({})),
             ..Default::default()
-        }),
-    );
+        })
+        .request_handler("tools/list", list_tools)
+        .request_handler("tools/call", call_tool)
+        .build();
     let server_handle = {
         let server = server;
         tokio::spawn(async move { server.listen().await })
