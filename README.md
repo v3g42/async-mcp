@@ -15,7 +15,25 @@ Many optional features are not implemented yet.
 Some guidelines:
 - use primitive building blocks and avoid framework if possible
 - keep it simple and stupid
-
+### Examples
+```rust
+    let server = Server::builder(StdioTransport)
+        .capabilities(ServerCapabilities {
+            tools: Some(json!({})),
+            ..Default::default()
+        })
+        .request_handler("tools/list", list_tools)
+        .request_handler("tools/call", call_tool)
+        .request_handler("resources/list", |_req: ListRequest| {
+            Ok(ResourcesListResponse {
+                resources: vec![],
+                next_cursor: None,
+                meta: None,
+            })
+        })
+        .build();
+```
+- [x] See [examples/file_system/README.md](examples/file_system/README.md) for usage examples and documentation
 ## Other Sdks
 
 ### Official
@@ -51,6 +69,3 @@ For now use claude desktop as client.
 ### Monitoring
 - [ ] Logging
 - [ ] Metrics
-
-### Examples
-- [x] See [examples/file_system/README.md](examples/file_system/README.md) for usage examples and documentation
