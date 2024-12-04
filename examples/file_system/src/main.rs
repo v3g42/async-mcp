@@ -5,8 +5,8 @@ use anyhow::Result;
 use mcp_sdk::server::Server;
 use mcp_sdk::transport::StdioTransport;
 use mcp_sdk::types::{
-    CallToolRequest, CallToolResponse, ListRequest, ServerCapabilities, ToolResponseContent,
-    ToolsListResponse,
+    CallToolRequest, CallToolResponse, ListRequest, ResourcesListResponse, ServerCapabilities,
+    ToolResponseContent, ToolsListResponse,
 };
 use serde_json::json;
 
@@ -17,15 +17,21 @@ async fn main() -> Result<()> {
         // needs to be stderr due to stdio transport
         .with_writer(std::io::stderr)
         .init();
-    let transport = StdioTransport;
 
-    let server = Server::builder(transport)
+    let server = Server::builder(StdioTransport)
         .capabilities(ServerCapabilities {
             tools: Some(json!({})),
             ..Default::default()
         })
         .request_handler("tools/list", list_tools)
         .request_handler("tools/call", call_tool)
+        .request_handler("resources/list", |_req: ListRequest| {
+            Ok(ResourcesListResponse {
+                resources: vec![],
+                next_cursor: None,
+                meta: None,
+            })
+        })
         .build();
     let server_handle = {
         let server = server;
