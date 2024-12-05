@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use mcp_sdk::server::Server;
-use mcp_sdk::transport::StdioTransport;
+use mcp_sdk::transport::ServerStdioTransport;
 use mcp_sdk::types::{
     CallToolRequest, CallToolResponse, ListRequest, ResourcesListResponse, ServerCapabilities,
     ToolResponseContent, ToolsListResponse,
@@ -18,7 +18,7 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let server = Server::builder(StdioTransport)
+    let server = Server::builder(ServerStdioTransport)
         .capabilities(ServerCapabilities {
             tools: Some(json!({})),
             ..Default::default()

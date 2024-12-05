@@ -4,8 +4,9 @@
 //! defines transport layer types
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::io::{self, BufRead, Write};
-use tracing::debug;
+
+mod stdio_transport;
+pub use stdio_transport::ServerStdioTransport;
 
 /// only JsonRpcMessage is supported for now
 /// https://spec.modelcontextprotocol.io/specification/basic/messages/
@@ -26,46 +27,10 @@ pub trait Transport: Send + Sync + 'static {
     fn close(&self) -> Result<()>;
 }
 
-/// Stdio transport with json serialization
-/// TODO: support for other binary serialzation formats
-#[derive(Default, Clone)]
-pub struct StdioTransport;
-
-impl Transport for StdioTransport {
-    fn receive(&self) -> Result<Message> {
-        let stdin = io::stdin();
-        let mut reader = stdin.lock();
-        let mut line = String::new();
-        reader.read_line(&mut line)?;
-        debug!("Received: {line}");
-        let message: Message = serde_json::from_str(&line)?;
-        Ok(message)
-    }
-
-    fn send(&self, message: &Message) -> Result<()> {
-        let stdout = io::stdout();
-        let mut writer = stdout.lock();
-        let serialized = serde_json::to_string(message)?;
-        debug!("Sending: {serialized}");
-        writer.write_all(serialized.as_bytes())?;
-        writer.write_all(b"\n")?;
-        writer.flush()?;
-        Ok(())
-    }
-
-    fn open(&self) -> Result<()> {
-        Ok(())
-    }
-
-    fn close(&self) -> Result<()> {
-        Ok(())
-    }
-}
-
 /// Request ID type
 pub type RequestId = u64;
 /// JSON RPC version type
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct JsonRpcVersion(String);
 
@@ -75,7 +40,13 @@ impl Default for JsonRpcVersion {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl JsonRpcVersion {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 #[serde(untagged)]
 pub enum JsonRpcMessage {
@@ -84,14 +55,8 @@ pub enum JsonRpcMessage {
     Notification(JsonRpcNotification),
 }
 
-impl JsonRpcVersion {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 // json rpc types
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct JsonRpcRequest {
     pub id: RequestId,
@@ -101,7 +66,7 @@ pub struct JsonRpcRequest {
     pub jsonrpc: JsonRpcVersion,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 #[serde(default)]
@@ -112,7 +77,7 @@ pub struct JsonRpcNotification {
     pub jsonrpc: JsonRpcVersion,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
@@ -129,7 +94,7 @@ pub struct JsonRpcResponse {
     pub jsonrpc: JsonRpcVersion,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
 pub struct JsonRpcError {
