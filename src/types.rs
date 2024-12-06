@@ -25,7 +25,7 @@ pub struct InitializeRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
-pub struct InitializeResult {
+pub struct InitializeResponse {
     pub protocol_version: String,
     pub capabilities: ServerCapabilities,
     pub server_info: Implementation,

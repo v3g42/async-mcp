@@ -4,7 +4,7 @@ use super::{
     protocol::{Protocol, ProtocolBuilder},
     transport::Transport,
     types::{
-        ClientCapabilities, Implementation, InitializeRequest, InitializeResult,
+        ClientCapabilities, Implementation, InitializeRequest, InitializeResponse,
         ServerCapabilities, LATEST_PROTOCOL_VERSION,
     },
 };
@@ -118,7 +118,7 @@ impl<T: Transport> Server<T> {
         state: Arc<RwLock<ServerState>>,
         server_info: Implementation,
         capabilities: ServerCapabilities,
-    ) -> impl Fn(InitializeRequest) -> Result<InitializeResult> {
+    ) -> impl Fn(InitializeRequest) -> Result<InitializeResponse> {
         move |req| {
             let mut state = state
                 .write()
@@ -126,7 +126,7 @@ impl<T: Transport> Server<T> {
             state.client_capabilities = Some(req.capabilities);
             state.client_info = Some(req.client_info);
 
-            Ok(InitializeResult {
+            Ok(InitializeResponse {
                 protocol_version: LATEST_PROTOCOL_VERSION.to_string(),
                 capabilities: capabilities.clone(),
                 server_info: server_info.clone(),
