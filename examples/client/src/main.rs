@@ -4,7 +4,7 @@ use anyhow::Result;
 use mcp_sdk::{
     client::ClientBuilder,
     protocol::RequestOptions,
-    transport::{ClientStdioTransport, JsonRpcMessage, JsonRpcRequest, JsonRpcVersion, Transport},
+    transport::{ClientStdioTransport, Transport},
 };
 
 #[tokio::main]
