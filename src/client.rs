@@ -10,6 +10,7 @@ use crate::{
 use anyhow::Result;
 use tracing::debug;
 
+#[derive(Clone)]
 pub struct Client<T: Transport> {
     protocol: Protocol<T>,
 }
@@ -60,6 +61,10 @@ impl<T: Transport> Client<T> {
         response
             .result
             .ok_or_else(|| anyhow::anyhow!("Request failed: {:?}", response.error))
+    }
+
+    pub async fn start(&self) -> Result<()> {
+        self.protocol.listen().await
     }
 }
 

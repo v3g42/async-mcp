@@ -6,7 +6,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 mod stdio_transport;
-pub use stdio_transport::ServerStdioTransport;
+pub use stdio_transport::*;
 
 /// only JsonRpcMessage is supported for now
 /// https://spec.modelcontextprotocol.io/specification/basic/messages/

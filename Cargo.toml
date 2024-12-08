@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "examples/file_system"]
+members = [".", "examples/client", "examples/file_system"]
 
 # Your existing package configuration stays here
 [package]

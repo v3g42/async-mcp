@@ -42,6 +42,7 @@ impl Transport for ServerStdioTransport {
 }
 
 /// ClientStdioTransport launches a child process and communicates with it via stdio
+#[derive(Clone)]
 pub struct ClientStdioTransport {
     stdin: Arc<Mutex<Option<io::BufWriter<std::process::ChildStdin>>>>,
     stdout: Arc<Mutex<Option<io::BufReader<std::process::ChildStdout>>>>,

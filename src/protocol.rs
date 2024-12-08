@@ -156,6 +156,12 @@ pub struct RequestOptions {
     timeout: Duration,
 }
 
+impl RequestOptions {
+    pub fn timeout(self, timeout: Duration) -> Self {
+        Self { timeout }
+    }
+}
+
 impl Default for RequestOptions {
     fn default() -> Self {
         Self {
