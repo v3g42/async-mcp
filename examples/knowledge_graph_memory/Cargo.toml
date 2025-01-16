@@ -1,0 +1,13 @@
+[package]
+name = "knowledge_graph_memory"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mcp-sdk = { path = "../.." }                       # This points to your main project
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tracing-subscriber = "0.3"
+tracing = "0.1"

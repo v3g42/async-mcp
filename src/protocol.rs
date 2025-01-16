@@ -203,6 +203,10 @@ impl<T: Transport> ProtocolBuilder<T> {
         self
     }
 
+    pub fn has_request_handler(&self, method: &str) -> bool {
+        self.request_handlers.contains_key(method)
+    }
+
     pub fn notification_handler<N>(
         mut self,
         method: &str,

@@ -1,4 +1,12 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
+
+use crate::{
+    registry::{ToolHandler, Tools},
+    types::{CallToolRequest, CallToolResponse, ListRequest, Tool, ToolsListResponse},
+};
 
 use super::{
     protocol::{Protocol, ProtocolBuilder},
@@ -28,7 +36,9 @@ pub struct ServerBuilder<T: Transport> {
     protocol: ProtocolBuilder<T>,
     server_info: Implementation,
     capabilities: ServerCapabilities,
+    tools: HashMap<String, ToolHandler>,
 }
+
 impl<T: Transport> ServerBuilder<T> {
     pub fn name<S: Into<String>>(mut self, name: S) -> Self {
         self.server_info.name = name.into();
@@ -46,6 +56,7 @@ impl<T: Transport> ServerBuilder<T> {
     }
 
     /// Register a typed request handler
+    /// for higher-level api use add tool
     pub fn request_handler<Req, Resp>(
         mut self,
         method: &str,
@@ -71,6 +82,20 @@ impl<T: Transport> ServerBuilder<T> {
         self
     }
 
+    pub fn register_tool(
+        &mut self,
+        tool: Tool,
+        f: impl Fn(CallToolRequest) -> Result<CallToolResponse> + Send + Sync + 'static,
+    ) {
+        self.tools.insert(
+            tool.name.clone(),
+            ToolHandler {
+                tool,
+                f: Box::new(f),
+            },
+        );
+    }
+
     pub fn build(self) -> Server<T> {
         Server::new(self)
     }
@@ -85,6 +110,7 @@ impl<T: Transport> Server<T> {
                 version: env!("CARGO_PKG_VERSION").to_string(),
             },
             capabilities: Default::default(),
+            tools: HashMap::new(),
         }
     }
 
@@ -96,7 +122,7 @@ impl<T: Transport> Server<T> {
         }));
 
         // Initialize protocol with handlers
-        let protocol = builder
+        let mut protocol = builder
             .protocol
             .request_handler(
                 "initialize",
@@ -106,6 +132,24 @@ impl<T: Transport> Server<T> {
                 "notifications/initialized",
                 Self::handle_initialized(state.clone()),
             );
+
+        // Add tools handlers if not already present
+        if !protocol.has_request_handler("tools/list") {
+            let tools = Arc::new(Tools::new(builder.tools));
+            let tools_clone = tools.clone();
+            protocol = protocol
+                .request_handler("tools/list", move |_req: ListRequest| {
+                    Ok(ToolsListResponse {
+                        tools: tools.list_tools(),
+                        next_cursor: None,
+                        meta: None,
+                    })
+                })
+                .request_handler("tools/call", move |req: CallToolRequest| {
+                    let response = tools_clone.call_tool(req);
+                    Ok(response)
+                });
+        }
 
         Server {
             protocol: protocol.build(),

@@ -78,7 +78,7 @@ pub struct RootCapabilities {
     pub list_changed: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Tool {
     pub name: String,
@@ -86,7 +86,7 @@ pub struct Tool {
     pub description: Option<String>,
     pub input_schema: serde_json::Value,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallToolRequest {
     pub name: String,
@@ -96,7 +96,7 @@ pub struct CallToolRequest {
     pub meta: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallToolResponse {
     pub content: Vec<ToolResponseContent>,
@@ -106,7 +106,7 @@ pub struct CallToolResponse {
     pub meta: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ToolResponseContent {
     #[serde(rename = "text")]
@@ -117,7 +117,7 @@ pub enum ToolResponseContent {
     Resource { resource: ResourceContents },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceContents {
     pub uri: Url,
@@ -134,7 +134,7 @@ pub struct ListRequest {
     pub meta: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolsListResponse {
     pub tools: Vec<Tool>,
