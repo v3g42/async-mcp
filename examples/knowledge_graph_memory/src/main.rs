@@ -11,7 +11,8 @@ use types::{AddObservationParams, DeleteObservationParams, Entity, KnowledgeGrap
 use anyhow::Result;
 mod types;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)
         // needs to be stderr due to stdio transport
@@ -22,9 +23,17 @@ fn main() -> Result<()> {
         tools: Some(json!({})),
         ..Default::default()
     });
-
     register_tools(&mut server)?;
 
+    let server = server.build();
+    let server_handle = {
+        let server = server;
+        tokio::spawn(async move { server.listen().await })
+    };
+
+    server_handle
+        .await?
+        .map_err(|e| anyhow::anyhow!("Server error: {}", e))?;
     Ok(())
 }
 
