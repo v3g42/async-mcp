@@ -26,13 +26,9 @@ async fn main() -> Result<()> {
     register_tools(&mut server)?;
 
     let server = server.build();
-    let server_handle = {
-        let server = server;
-        tokio::spawn(async move { server.listen().await })
-    };
-
-    server_handle
-        .await?
+    server
+        .listen()
+        .await
         .map_err(|e| anyhow::anyhow!("Server error: {}", e))?;
     Ok(())
 }
@@ -188,7 +184,9 @@ fn register_tools(server: &mut ServerBuilder<ServerStdioTransport>) -> Result<()
             .get("entityNames")
             .ok_or(anyhow::anyhow!("missing arguments `entityNames`"))?;
         let entity_names: Vec<String> = serde_json::from_value(entity_names.clone())?;
-        kg_clone.lock().unwrap().delete_entities(entity_names)?;
+        let mut kg_guard = kg_clone.lock().unwrap();
+        kg_guard.delete_entities(entity_names)?;
+        kg_guard.save_to_file(memory_file_path)?;
         Ok(CallToolResponse {
             content: vec![ToolResponseContent::Text {
                 text: "Entities deleted successfully".to_string(),
@@ -229,7 +227,9 @@ fn register_tools(server: &mut ServerBuilder<ServerStdioTransport>) -> Result<()
             .get("deletions")
             .ok_or(anyhow::anyhow!("missing arguments `deletions`"))?;
         let deletions: Vec<DeleteObservationParams> = serde_json::from_value(deletions.clone())?;
-        kg_clone.lock().unwrap().delete_observations(deletions)?;
+        let mut kg_guard = kg_clone.lock().unwrap();
+        kg_guard.delete_observations(deletions)?;
+        kg_guard.save_to_file(memory_file_path)?;
         Ok(CallToolResponse {
             content: vec![ToolResponseContent::Text {
                 text: "Observations deleted successfully".to_string(),
@@ -268,7 +268,9 @@ fn register_tools(server: &mut ServerBuilder<ServerStdioTransport>) -> Result<()
             .get("relations")
             .ok_or(anyhow::anyhow!("missing arguments `relations`"))?;
         let relations: Vec<Relation> = serde_json::from_value(relations.clone())?;
-        kg_clone.lock().unwrap().delete_relations(relations)?;
+        let mut kg_guard = kg_clone.lock().unwrap();
+        kg_guard.delete_relations(relations)?;
+        kg_guard.save_to_file(memory_file_path)?;
         Ok(CallToolResponse {
             content: vec![ToolResponseContent::Text {
                 text: "Relations deleted successfully".to_string(),
