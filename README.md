@@ -5,6 +5,15 @@ A minimalistic async Rust implementation of the Model Context Protocol (MCP). Th
 
 > **Note**: This project is still early in development.
 
+## Installation
+
+Add this to your `Cargo.toml`:
+
+```toml
+[dependencies]
+async-mcp = "0.0.1"
+```
+
 ## Overview
 This is an implementation of the [Model Context Protocol](https://github.com/modelcontextprotocol) defined by Anthropic.
 
