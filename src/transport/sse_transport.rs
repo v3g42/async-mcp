@@ -174,7 +174,6 @@ impl ClientSseTransport {
         session_id: &Arc<Mutex<Option<String>>>,
     ) -> Result<()> {
         let event = String::from_utf8(chunk.to_vec())?;
-        println!("I M HHERE {event}");
         let sse_event = Self::parse_sse_message(&event)
             .context(format!("sse_event is not recognised {event}"))?;
         match sse_event {
