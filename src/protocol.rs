@@ -94,7 +94,6 @@ impl<T: Transport> Protocol<T> {
 
             // Exit loop when transport signals shutdown with None
             if message.is_none() {
-                debug!("Transport signaled shutdown");
                 break;
             }
 

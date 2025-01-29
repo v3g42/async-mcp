@@ -3,28 +3,33 @@
 //! handles send and receive of messages
 //! defines transport layer types
 use anyhow::Result;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 mod stdio_transport;
 pub use stdio_transport::*;
-
+mod inmemory_transport;
+pub use inmemory_transport::*;
+mod sse_transport;
+pub use sse_transport::*;
 /// only JsonRpcMessage is supported for now
 /// https://spec.modelcontextprotocol.io/specification/basic/messages/
 pub type Message = JsonRpcMessage;
 
+#[async_trait]
 pub trait Transport: Send + Sync + 'static {
     /// Send a message to the transport
-    fn send(&self, message: &Message) -> Result<()>;
+    async fn send(&self, message: &Message) -> Result<()>;
 
     /// Receive a message from the transport
     /// this is blocking call
-    fn receive(&self) -> Result<Message>;
+    async fn receive(&self) -> Result<Option<Message>>;
 
     /// open the transport
-    fn open(&self) -> Result<()>;
+    async fn open(&self) -> Result<()>;
 
     /// Close the transport
-    fn close(&self) -> Result<()>;
+    async fn close(&self) -> Result<()>;
 }
 
 /// Request ID type

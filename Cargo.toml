@@ -4,15 +4,16 @@ members = [
   "examples/client",
   "examples/file_system",
   "examples/knowledge_graph_memory",
+  "examples/pingpong",
 ]
-default-members = ["examples/file_system"]
+default-members = ["examples/file_system", "examples/pingpong"]
 # Your existing package configuration stays here
 [package]
 name = "async-mcp"
 version = "0.0.1"
 edition = "2021"
 description = "Async Implementation of Model Context Protocol (MCP)"
-repository = "https://github.com/DistrAI/async-mcp"
+repository = "https://github.com/DistriAi/async-mcp"
 
 license = "Apache-2.0"
 [dependencies]
@@ -23,3 +24,12 @@ anyhow = "1.0"
 async-trait = "0.1"
 url = { version = "2.5", features = ["serde"] }
 tracing = "0.1"
+reqwest = { version = "0.12.12", features = ["stream", "json"] }
+actix-lab = "0.1.0"
+actix-web = "4.3"
+tokio-stream = "0.1"
+futures = "0.3"
+jsonwebtoken = "8.1"
+uuid = { version = "1.0", features = ["v4"] }
+[dev-dependencies]
+tracing-subscriber = "0.3"

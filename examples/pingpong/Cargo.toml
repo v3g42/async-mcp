@@ -1,5 +1,5 @@
 [package]
-name = "file_system"
+name = "pingpong"
 version = "0.1.0"
 edition = "2021"
 
@@ -13,3 +13,11 @@ tracing-subscriber = "0.3"
 tracing = "0.1"
 home = "0.5.9"
 clap = { version = "4.4", features = ["derive"] }
+
+[[bin]]
+name = "pingpong"
+path = "./src/main.rs"
+
+[[bin]]
+name = "pingpong_client"
+path = "./src/client.rs"

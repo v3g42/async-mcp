@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_mcp::{run_sse_server, transport::ServerStdioTransport};
 use clap::{Parser, ValueEnum};
-use file_system::server::build_server;
+use pingpong::server::build_server;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

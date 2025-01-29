@@ -1,11 +1,11 @@
 use super::{Message, Transport};
 use anyhow::Result;
 use async_trait::async_trait;
+use std::io::{self, BufRead, Write};
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::Child;
-use tokio::sync::watch;
 use tokio::sync::Mutex;
 use tracing::debug;
 
@@ -16,13 +16,12 @@ pub struct ServerStdioTransport;
 #[async_trait]
 impl Transport for ServerStdioTransport {
     async fn receive(&self) -> Result<Option<Message>> {
-        let stdin = tokio::io::stdin();
-        let mut reader = BufReader::new(stdin);
+        let stdin = io::stdin();
+        let mut reader = stdin.lock();
         let mut line = String::new();
-
-        if reader.read_line(&mut line).await? == 0 {
-            debug!("Received EOF from stdin");
-            std::process::exit(0);
+        reader.read_line(&mut line)?;
+        if line.is_empty() {
+            return Ok(None);
         }
 
         debug!("Received: {line}");
@@ -31,14 +30,13 @@ impl Transport for ServerStdioTransport {
     }
 
     async fn send(&self, message: &Message) -> Result<()> {
-        let stdout = tokio::io::stdout();
-        let mut writer = BufWriter::new(stdout);
+        let stdout = io::stdout();
+        let mut writer = stdout.lock();
         let serialized = serde_json::to_string(message)?;
-
         debug!("Sending: {serialized}");
-        writer.write_all(serialized.as_bytes()).await?;
-        writer.write_all(b"\n").await?;
-        writer.flush().await?;
+        writer.write_all(serialized.as_bytes())?;
+        writer.write_all(b"\n")?;
+        writer.flush()?;
         Ok(())
     }
 
@@ -59,78 +57,68 @@ pub struct ClientStdioTransport {
     child: Arc<Mutex<Option<Child>>>,
     program: String,
     args: Vec<String>,
-    shutdown: watch::Receiver<()>,
-    shutdown_tx: Arc<watch::Sender<()>>,
 }
 
 impl ClientStdioTransport {
     pub fn new(program: &str, args: &[&str]) -> Result<Self> {
-        let (tx, rx) = watch::channel(());
         Ok(ClientStdioTransport {
             stdin: Arc::new(Mutex::new(None)),
             stdout: Arc::new(Mutex::new(None)),
             child: Arc::new(Mutex::new(None)),
             program: program.to_string(),
             args: args.iter().map(|&s| s.to_string()).collect(),
-            shutdown: rx,
-            shutdown_tx: Arc::new(tx),
         })
     }
 }
 #[async_trait]
 impl Transport for ClientStdioTransport {
     async fn receive(&self) -> Result<Option<Message>> {
+        debug!("ClientStdioTransport: Starting to receive message");
         let mut stdout = self.stdout.lock().await;
         let stdout = stdout
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Transport not opened"))?;
 
         let mut line = String::new();
-        let mut shutdown = self.shutdown.clone();
+        debug!("ClientStdioTransport: Reading line from process");
+        let bytes_read = stdout.read_line(&mut line).await?;
+        debug!("ClientStdioTransport: Read {} bytes", bytes_read);
 
-        tokio::select! {
-            result = stdout.read_line(&mut line) => {
-                if result? == 0 {
-                    debug!("Received EOF from process");
-                    return Ok(None);
-                }
-                debug!("Received from process: {line}");
-                let message: Message = serde_json::from_str(&line)?;
-                Ok(Some(message))
-            }
-            _ = shutdown.changed() => {
-                debug!("Receive operation cancelled due to shutdown");
-                if let Ok(n) = stdout.read_line(&mut line).await {
-                    if n > 0 {
-                        debug!("Flushed remaining data: {line}");
-                    }
-                }
-                Ok(None)
-            }
+        if bytes_read == 0 {
+            debug!("ClientStdioTransport: Received EOF from process");
+            return Ok(None);
         }
+        debug!("ClientStdioTransport: Received from process: {line}");
+        let message: Message = serde_json::from_str(&line)?;
+        debug!("ClientStdioTransport: Successfully parsed message");
+        Ok(Some(message))
     }
 
     async fn send(&self, message: &Message) -> Result<()> {
+        debug!("ClientStdioTransport: Starting to send message");
         let mut stdin = self.stdin.lock().await;
         let stdin = stdin
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Transport not opened"))?;
 
         let serialized = serde_json::to_string(message)?;
-        debug!("Sending to process: {serialized}");
+        debug!("ClientStdioTransport: Sending to process: {serialized}");
         stdin.write_all(serialized.as_bytes()).await?;
         stdin.write_all(b"\n").await?;
         stdin.flush().await?;
+        debug!("ClientStdioTransport: Successfully sent and flushed message");
         Ok(())
     }
 
     async fn open(&self) -> Result<()> {
+        debug!("ClientStdioTransport: Opening transport");
         let mut child = tokio::process::Command::new(&self.program)
             .args(&self.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()?;
 
+        debug!("ClientStdioTransport: Child process spawned");
         let stdin = child
             .stdin
             .take()
@@ -151,9 +139,6 @@ impl Transport for ClientStdioTransport {
         const GRACEFUL_TIMEOUT_MS: u64 = 1000;
         const SIGTERM_TIMEOUT_MS: u64 = 500;
         debug!("Starting graceful shutdown");
-
-        let _ = self.shutdown_tx.send(());
-
         {
             let mut stdin_guard = self.stdin.lock().await;
             if let Some(stdin) = stdin_guard.as_mut() {

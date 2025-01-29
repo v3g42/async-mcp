@@ -11,7 +11,7 @@ use async_mcp::types::{
 use serde_json::json;
 
 pub fn build_server<T: Transport>(t: T) -> Server<T> {
-    let server = Server::builder(t)
+    Server::builder(t)
         .capabilities(ServerCapabilities {
             tools: Some(json!({})),
             ..Default::default()
@@ -31,8 +31,7 @@ pub fn build_server<T: Transport>(t: T) -> Server<T> {
                 })
             })
         })
-        .build();
-    server
+        .build()
 }
 
 fn call_tool(req: CallToolRequest) -> Result<CallToolResponse> {
