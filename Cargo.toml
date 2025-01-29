@@ -14,8 +14,13 @@ version = "0.0.1"
 edition = "2021"
 description = "Async Implementation of Model Context Protocol (MCP)"
 repository = "https://github.com/DistriAi/async-mcp"
-
 license = "Apache-2.0"
+authors = ["https://github.com/v3g42"]
+documentation = "https://github.com/DistriAi/async-mcp#readme"
+homepage = "https://github.com/DistriAi/async-mcp"
+keywords = ["async", "mcp", "protocol", "Anthropic"]
+categories = ["asynchronous", "network-programming"]
+readme = "README.md"
 [dependencies]
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

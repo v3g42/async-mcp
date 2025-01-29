@@ -1,24 +1,25 @@
-# Model Context Protocol (MCP)
-Minimalistic Async Rust Implementation Of Model Context Protocol(MCP). 
-This extends `sync` implementation of [mcp-sdk](https://github.com/AntigmaLabs/mcp-sdk) to `async` and implements additional transports required for our use. As this ended up changing the code significantly releasing it as a different crate. 
+# Async MCP
+A minimalistic async Rust implementation of the Model Context Protocol (MCP). This library extends the synchronous implementation from [mcp-sdk](https://github.com/AntigmaLabs/mcp-sdk) to support async operations and implements additional transports. Due to significant code changes, it is released as a separate crate.
 
 [![Crates.io](https://img.shields.io/crates/v/async-mcp)](https://crates.io/crates/async-mcp)
 
+> **Note**: This project is still early in development.
 
-MCP protocol defined by Anthropic: [MCP](https://github.com/modelcontextprotocol)
+## Overview
+This is an implementation of the [Model Context Protocol](https://github.com/modelcontextprotocol) defined by Anthropic.
 
-| Note: Still early in development. 
+## Features
 
-### Features
-Supported Transports
-- SSE
-- Stdio
-- InMemory
+### Supported Transports
+- Server-Sent Events (SSE)
+- Standard IO (Stdio) 
+- In-Memory Channel
 
-## Examples
-Refer to [pinpong](./examples/pingpong/) for a full working example.
+## Usage Examples
 
-### Building a Server with Stdio Transport
+### Server Implementation
+
+#### Using Stdio Transport
 ```rust
 let server = Server::builder(StdioTransport)
     .capabilities(ServerCapabilities {
@@ -36,33 +37,35 @@ let server = Server::builder(StdioTransport)
     })
     .build();
 ```
-### Building a Server with SSE Transport
+
+#### Using SSE Transport
 ```rust
 run_sse_server(3004, None, |transport| async move {
-    // Similar to the above example except here we use SSE Transport
     let server = build_server(transport);
     Ok(server)
 })
 .await?;
 ```
 
-## Client 
-```rust
-// Create transport 
+### Client Implementation
 
-// Stdio
+#### Setting up Transport
+```rust
+// Stdio Transport
 let transport = ClientStdioTransport::new("<CMD>", &[])?;
 
-// InMemory
+// In-Memory Transport
 let transport = ClientInMemoryTransport::new(|t| tokio::spawn(inmemory_server(t)));
 
-//SSE
+// SSE Transport
 let transport = ClientSseTransport::new(server_url);
 ```
 
-Request tools/call
+#### Making Requests
 ```rust
+// Initialize transport
 transport.open().await?;
+
 // Create and start client
 let client = async_mcp::client::ClientBuilder::new(transport.clone()).build();
 let client_clone = client.clone();
@@ -78,44 +81,51 @@ client
     .await?
 ```
 
-For complete examples, see:
+## Complete Examples
+For full working examples, check out:
+- [Ping Pong Example](./examples/pingpong/)
 - [File System Example](examples/file_system/README.md)
 - [Knowledge Graph Memory Example](examples/knowledge_graph_memory/README.md)
 
-## Other SDKs
+## Related SDKs
+
 ### Official
-- [typescript-sdk](https://github.com/modelcontextprotocol/typescript-sdk)
-- [python-sdk](https://github.com/modelcontextprotocol/python-sdk)
+- [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
+- [Python SDK](https://github.com/modelcontextprotocol/python-sdk)
 
 ### Community
-- [go-sdk](https://github.com/mark3labs/mcp-go)
+- [Go SDK](https://github.com/mark3labs/mcp-go)
 
-For complete feature set, please refer to the [MCP specification](https://spec.modelcontextprotocol.io/).
+For the complete feature set, please refer to the [MCP specification](https://spec.modelcontextprotocol.io/).
 
-## Features
-### Basic Protocol
+## Implementation Status
+
+### Core Protocol Features
 - [x] Basic Message Types
 - [ ] Error and Signal Handling
-- Transport
-    - [x] Stdio
-    - [x] In Memory Channel 
-    - [x] SSE
-- Utilities 
-    - [ ] Ping
-    - [ ] Cancellation
-    - [ ] Progress
-### Server
-- [x] Tools
+- [x] Transport Layer
+  - [x] Stdio
+  - [x] In-Memory Channel
+  - [x] SSE
+
+### Server Features
+- [x] Tools Support
 - [ ] Prompts
 - [ ] Resources
-    - [x] Pagination
-    - [x] Completion
-### Client
-Compatible with Claude Desktop.
-- [x] Stdio
-- [x] In Memory Channel 
-- [x] SSE
+  - [x] Pagination
+  - [x] Completion
+
+### Client Features
+Compatible with Claude Desktop:
+- [x] Stdio Support
+- [x] In-Memory Channel
+- [x] SSE Support
 
 ### Monitoring
 - [ ] Logging
 - [ ] Metrics
+
+### Utilities
+- [ ] Ping
+- [ ] Cancellation
+- [ ] Progress Tracking
