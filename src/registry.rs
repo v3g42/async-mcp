@@ -1,6 +1,8 @@
-use crate::types::{CallToolRequest, CallToolResponse, Tool, ToolResponseContent};
+use crate::types::{CallToolRequest, CallToolResponse, Tool};
 use anyhow::Result;
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 
 pub struct Tools {
     tool_handlers: HashMap<String, ToolHandler>,
@@ -17,34 +19,13 @@ impl Tools {
             .map(|tool_handler| tool_handler.tool.clone())
     }
 
-    pub fn call_tool(&self, request: CallToolRequest) -> CallToolResponse {
-        let request_name = request.name.clone();
-        let handler = self.tool_handlers.get(&request_name);
-        if handler.is_none() {
-            return CallToolResponse {
-                content: vec![ToolResponseContent::Text {
-                    text: format!("Tool {} not found", request_name),
-                }],
-                is_error: Some(true),
-                meta: None,
-            };
-        }
+    pub async fn call_tool(&self, req: CallToolRequest) -> Result<CallToolResponse> {
+        let handler = self
+            .tool_handlers
+            .get(&req.name)
+            .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", req.name))?;
 
-        let result = (handler.unwrap().f)(request);
-        if result.is_err() {
-            return CallToolResponse {
-                content: vec![ToolResponseContent::Text {
-                    text: format!(
-                        "Error calling tool {}: {}",
-                        request_name,
-                        result.err().unwrap()
-                    ),
-                }],
-                is_error: Some(true),
-                meta: None,
-            };
-        }
-        result.unwrap()
+        (handler.f)(req).await
     }
 
     pub fn list_tools(&self) -> Vec<Tool> {
@@ -57,5 +38,9 @@ impl Tools {
 
 pub(crate) struct ToolHandler {
     pub tool: Tool,
-    pub f: Box<dyn Fn(CallToolRequest) -> Result<CallToolResponse> + Send + Sync + 'static>,
+    pub f: Box<
+        dyn Fn(CallToolRequest) -> Pin<Box<dyn Future<Output = Result<CallToolResponse>> + Send>>
+            + Send
+            + Sync,
+    >,
 }

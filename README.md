@@ -1,20 +1,10 @@
 # Model Context Protocol (MCP)
-Minimalistic Rust Implementation Of Model Context Protocol(MCP).
+Minimalistic Async Implementation Of Model Context Protocol(MCP). Original sync implementation from [async-mcp](https://github.com/AntigmaLabs/async-mcp)
 
-
-[![Crates.io](https://img.shields.io/crates/v/mcp-sdk)](https://crates.io/crates/mcp-sdk)
+[![Crates.io](https://img.shields.io/crates/v/async-mcp)](https://crates.io/crates/async-mcp)
 
 
 Main repo from Anthropic: [MCP](https://github.com/modelcontextprotocol)
-
-## Minimalistic approach
-Given it is still very early stage of MCP adoption, the goal is to remain agile and easy to understand.
-This implementation aims to capture the core idea of MCP while maintaining compatibility with Claude Desktop.
-Many optional features are not implemented yet.
-
-Some guidelines:
-- use primitive building blocks and avoid framework if possible
-- keep it simple and stupid
 ### Examples
 ```rust
     let server = Server::builder(StdioTransport)
@@ -40,9 +30,6 @@ Some guidelines:
 - [typescript-sdk](https://github.com/modelcontextprotocol/typescript-sdk)
 - [python-sdk](https://github.com/modelcontextprotocol/python-sdk)
 
-### Community
-- [go-sdk](https://github.com/mark3labs/mcp-go)
-
 For complete feature please refer to the [MCP specification](https://spec.modelcontextprotocol.io/).
 ## Features
 ### Basic Protocol
@@ -50,8 +37,8 @@ For complete feature please refer to the [MCP specification](https://spec.modelc
 - [ ] Error and Signal Handling
 - Transport
     - [x] Stdio
-    - [ ] In Memory Channel (not yet supported in formal specification)
-    - [ ] SSE
+    - [x] In Memory Channel 
+    - [x] SSE
     - [ ] More compact serialization format (not yet supported in formal specification)
 - Utilities 
     - [ ] Ping

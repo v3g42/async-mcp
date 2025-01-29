@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use mcp_sdk::{
+use async_mcp::{
     client::ClientBuilder,
     protocol::RequestOptions,
     transport::{ClientStdioTransport, Transport},
@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
         let transport = ClientStdioTransport::new("cat", &[])?;
 
         // Open transport
-        transport.open()?;
+        transport.open().await?;
 
         let client = ClientBuilder::new(transport).build();
         let client_clone = client.clone();

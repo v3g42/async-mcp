@@ -8,6 +8,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::{
@@ -34,14 +35,14 @@ impl<T: Transport> Protocol<T> {
         ProtocolBuilder::new(transport)
     }
 
-    pub fn notify(&self, method: &str, params: Option<serde_json::Value>) -> Result<()> {
+    pub async fn notify(&self, method: &str, params: Option<serde_json::Value>) -> Result<()> {
         let notification = JsonRpcNotification {
             method: method.to_string(),
             params,
             ..Default::default()
         };
         let msg = JsonRpcMessage::Notification(notification);
-        self.transport.send(&msg)?;
+        self.transport.send(&msg).await?;
         Ok(())
     }
 
@@ -69,7 +70,7 @@ impl<T: Transport> Protocol<T> {
             params,
             ..Default::default()
         });
-        self.transport.send(&msg)?;
+        self.transport.send(&msg).await?;
 
         // Wait for response with timeout
         match timeout(options.timeout, rx)
@@ -89,26 +90,32 @@ impl<T: Transport> Protocol<T> {
     pub async fn listen(&self) -> Result<()> {
         debug!("Listening for requests");
         loop {
-            let message: Message = self.transport.receive()?;
-            match message {
+            let message: Option<Message> = self.transport.receive().await?;
+
+            // Exit loop when transport signals shutdown with None
+            if message.is_none() {
+                debug!("Transport signaled shutdown");
+                break;
+            }
+
+            match message.unwrap() {
                 JsonRpcMessage::Request(request) => self.handle_request(request).await?,
                 JsonRpcMessage::Response(response) => {
-                    // Remove and send response through the channel
                     let id = response.id;
                     let mut pending = self.pending_requests.lock().await;
                     if let Some(tx) = pending.remove(&id) {
-                        // If send fails, the receiver was dropped, just continue
                         let _ = tx.send(response);
                     }
                 }
-                JsonRpcMessage::Notification(json_rpc_notification) => {
+                JsonRpcMessage::Notification(notification) => {
                     let handlers = self.notification_handlers.lock().await;
-                    if let Some(handler) = handlers.get(&json_rpc_notification.method) {
-                        handler.handle(json_rpc_notification)?;
+                    if let Some(handler) = handlers.get(&notification.method) {
+                        handler.handle(notification).await?;
                     }
                 }
             }
         }
+        Ok(())
     }
 
     async fn handle_request(&self, request: JsonRpcRequest) -> Result<()> {
@@ -117,7 +124,7 @@ impl<T: Transport> Protocol<T> {
             match handler.handle(request.clone()).await {
                 Ok(response) => {
                     let msg = JsonRpcMessage::Response(response);
-                    self.transport.send(&msg)?;
+                    self.transport.send(&msg).await?;
                 }
                 Err(e) => {
                     let error_response = JsonRpcResponse {
@@ -131,7 +138,7 @@ impl<T: Transport> Protocol<T> {
                         ..Default::default()
                     };
                     let msg = JsonRpcMessage::Response(error_response);
-                    self.transport.send(&msg)?;
+                    self.transport.send(&msg).await?;
                 }
             }
         } else {
@@ -144,7 +151,8 @@ impl<T: Transport> Protocol<T> {
                         data: None,
                     }),
                     ..Default::default()
-                }))?;
+                }))
+                .await?;
         }
         Ok(())
     }
@@ -187,14 +195,17 @@ impl<T: Transport> ProtocolBuilder<T> {
     pub fn request_handler<Req, Resp>(
         mut self,
         method: &str,
-        handler: impl Fn(Req) -> Result<Resp> + Send + Sync + 'static,
+        handler: impl Fn(Req) -> Pin<Box<dyn std::future::Future<Output = Result<Resp>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     ) -> Self
     where
         Req: DeserializeOwned + Send + Sync + 'static,
         Resp: Serialize + Send + Sync + 'static,
     {
         let handler = TypedRequestHandler {
-            handler,
+            handler: Box::new(handler),
             _phantom: std::marker::PhantomData,
         };
 
@@ -210,7 +221,10 @@ impl<T: Transport> ProtocolBuilder<T> {
     pub fn notification_handler<N>(
         mut self,
         method: &str,
-        handler: impl Fn(N) -> Result<()> + Send + Sync + 'static,
+        handler: impl Fn(N) -> Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     ) -> Self
     where
         N: DeserializeOwned + Send + Sync + 'static,
@@ -218,7 +232,7 @@ impl<T: Transport> ProtocolBuilder<T> {
         self.notification_handlers.insert(
             method.to_string(),
             Box::new(TypedNotificationHandler {
-                handler,
+                handler: Box::new(handler),
                 _phantom: std::marker::PhantomData,
             }),
         );
@@ -236,43 +250,45 @@ impl<T: Transport> ProtocolBuilder<T> {
     }
 }
 
-// Wrapper for handler types using async trait
+// Update the handler traits to be async
 #[async_trait]
 trait RequestHandler: Send + Sync {
     async fn handle(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse>;
 }
 
+#[async_trait]
 trait NotificationHandler: Send + Sync {
-    fn handle(&self, notification: JsonRpcNotification) -> Result<()>;
+    async fn handle(&self, notification: JsonRpcNotification) -> Result<()>;
 }
 
-// Typed handler implementations
-struct TypedRequestHandler<Req, Resp, F>
+// Update the TypedRequestHandler to use async handlers
+struct TypedRequestHandler<Req, Resp>
 where
     Req: DeserializeOwned + Send + Sync + 'static,
     Resp: Serialize + Send + Sync + 'static,
-    F: Fn(Req) -> Result<Resp> + Send + Sync + 'static,
 {
-    handler: F,
+    handler: Box<
+        dyn Fn(Req) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Resp>> + Send>>
+            + Send
+            + Sync,
+    >,
     _phantom: std::marker::PhantomData<(Req, Resp)>,
 }
 
 #[async_trait]
-impl<Req, Resp, F> RequestHandler for TypedRequestHandler<Req, Resp, F>
+impl<Req, Resp> RequestHandler for TypedRequestHandler<Req, Resp>
 where
     Req: DeserializeOwned + Send + Sync + 'static,
     Resp: Serialize + Send + Sync + 'static,
-    F: Fn(Req) -> Result<Resp> + Send + Sync + 'static,
 {
     async fn handle(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
-        // If params is None or null, deserialize as unit type using Value::Null
         let params: Req = if request.params.is_none() || request.params.as_ref().unwrap().is_null()
         {
             serde_json::from_value(serde_json::Value::Null)?
         } else {
             serde_json::from_value(request.params.unwrap())?
         };
-        let result = (self.handler)(params)?;
+        let result = (self.handler)(params).await?;
         Ok(JsonRpcResponse {
             id: request.id,
             result: Some(serde_json::to_value(result)?),
@@ -281,28 +297,31 @@ where
         })
     }
 }
-pub struct TypedNotificationHandler<N, F>
+
+struct TypedNotificationHandler<N>
 where
     N: DeserializeOwned + Send + Sync + 'static,
-    F: Fn(N) -> Result<()> + Send + Sync + 'static,
 {
-    handler: F,
+    handler: Box<
+        dyn Fn(N) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
+            + Send
+            + Sync,
+    >,
     _phantom: std::marker::PhantomData<N>,
 }
 
 #[async_trait]
-impl<N, F> NotificationHandler for TypedNotificationHandler<N, F>
+impl<N> NotificationHandler for TypedNotificationHandler<N>
 where
     N: DeserializeOwned + Send + Sync + 'static,
-    F: Fn(N) -> Result<()> + Send + Sync + 'static,
 {
-    fn handle(&self, notification: JsonRpcNotification) -> Result<()> {
+    async fn handle(&self, notification: JsonRpcNotification) -> Result<()> {
         let params: N =
             if notification.params.is_none() || notification.params.as_ref().unwrap().is_null() {
                 serde_json::from_value(serde_json::Value::Null)?
             } else {
                 serde_json::from_value(notification.params.unwrap())?
             };
-        (self.handler)(params)
+        (self.handler)(params).await
     }
 }

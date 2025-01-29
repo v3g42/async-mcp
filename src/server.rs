@@ -18,6 +18,8 @@ use super::{
 };
 use anyhow::Result;
 use serde::{de::DeserializeOwned, Serialize};
+use std::future::Future;
+use std::pin::Pin;
 
 #[derive(Clone)]
 pub struct ServerState {
@@ -60,7 +62,10 @@ impl<T: Transport> ServerBuilder<T> {
     pub fn request_handler<Req, Resp>(
         mut self,
         method: &str,
-        handler: impl Fn(Req) -> Result<Resp> + Send + Sync + 'static,
+        handler: impl Fn(Req) -> Pin<Box<dyn std::future::Future<Output = Result<Resp>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     ) -> Self
     where
         Req: DeserializeOwned + Send + Sync + 'static,
@@ -73,7 +78,10 @@ impl<T: Transport> ServerBuilder<T> {
     pub fn notification_handler<N>(
         mut self,
         method: &str,
-        handler: impl Fn(N) -> Result<()> + Send + Sync + 'static,
+        handler: impl Fn(N) -> Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     ) -> Self
     where
         N: DeserializeOwned + Send + Sync + 'static,
@@ -85,7 +93,10 @@ impl<T: Transport> ServerBuilder<T> {
     pub fn register_tool(
         &mut self,
         tool: Tool,
-        f: impl Fn(CallToolRequest) -> Result<CallToolResponse> + Send + Sync + 'static,
+        f: impl Fn(CallToolRequest) -> Pin<Box<dyn Future<Output = Result<CallToolResponse>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     ) {
         self.tools.insert(
             tool.name.clone(),
@@ -137,17 +148,23 @@ impl<T: Transport> Server<T> {
         if !protocol.has_request_handler("tools/list") {
             let tools = Arc::new(Tools::new(builder.tools));
             let tools_clone = tools.clone();
+            let tools_list = tools.clone();
+            let tools_call = tools_clone.clone();
+
             protocol = protocol
                 .request_handler("tools/list", move |_req: ListRequest| {
-                    Ok(ToolsListResponse {
-                        tools: tools.list_tools(),
-                        next_cursor: None,
-                        meta: None,
+                    let tools = tools_list.clone();
+                    Box::pin(async move {
+                        Ok(ToolsListResponse {
+                            tools: tools.list_tools(),
+                            next_cursor: None,
+                            meta: None,
+                        })
                     })
                 })
                 .request_handler("tools/call", move |req: CallToolRequest| {
-                    let response = tools_clone.call_tool(req);
-                    Ok(response)
+                    let tools = tools_call.clone();
+                    Box::pin(async move { tools.call_tool(req).await })
                 });
         }
 
@@ -162,30 +179,44 @@ impl<T: Transport> Server<T> {
         state: Arc<RwLock<ServerState>>,
         server_info: Implementation,
         capabilities: ServerCapabilities,
-    ) -> impl Fn(InitializeRequest) -> Result<InitializeResponse> {
+    ) -> impl Fn(
+        InitializeRequest,
+    )
+        -> Pin<Box<dyn std::future::Future<Output = Result<InitializeResponse>> + Send>> {
         move |req| {
-            let mut state = state
-                .write()
-                .map_err(|_| anyhow::anyhow!("Lock poisoned"))?;
-            state.client_capabilities = Some(req.capabilities);
-            state.client_info = Some(req.client_info);
+            let state = state.clone();
+            let server_info = server_info.clone();
+            let capabilities = capabilities.clone();
 
-            Ok(InitializeResponse {
-                protocol_version: LATEST_PROTOCOL_VERSION.to_string(),
-                capabilities: capabilities.clone(),
-                server_info: server_info.clone(),
+            Box::pin(async move {
+                let mut state = state
+                    .write()
+                    .map_err(|_| anyhow::anyhow!("Lock poisoned"))?;
+                state.client_capabilities = Some(req.capabilities);
+                state.client_info = Some(req.client_info);
+
+                Ok(InitializeResponse {
+                    protocol_version: LATEST_PROTOCOL_VERSION.to_string(),
+                    capabilities,
+                    server_info,
+                })
             })
         }
     }
 
     // Helper function for initialized handler
-    fn handle_initialized(state: Arc<RwLock<ServerState>>) -> impl Fn(()) -> Result<()> {
+    fn handle_initialized(
+        state: Arc<RwLock<ServerState>>,
+    ) -> impl Fn(()) -> Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>> {
         move |_| {
-            let mut state = state
-                .write()
-                .map_err(|_| anyhow::anyhow!("Lock poisoned"))?;
-            state.initialized = true;
-            Ok(())
+            let state = state.clone();
+            Box::pin(async move {
+                let mut state = state
+                    .write()
+                    .map_err(|_| anyhow::anyhow!("Lock poisoned"))?;
+                state.initialized = true;
+                Ok(())
+            })
         }
     }
 

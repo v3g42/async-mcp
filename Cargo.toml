@@ -1,13 +1,18 @@
 [workspace]
-members = [".", "examples/client", "examples/file_system", "examples/knowledge_graph_memory"]
-
+members = [
+  ".",
+  "examples/client",
+  "examples/file_system",
+  "examples/knowledge_graph_memory",
+]
+default-members = ["examples/file_system"]
 # Your existing package configuration stays here
 [package]
-name = "mcp-sdk"
-version = "0.0.2"
+name = "async-mcp"
+version = "0.0.1"
 edition = "2021"
-description = "Rust Implementation of Model Context Protocol (MCP)"
-repository = "https://github.com/AntigmaLabs"
+description = "Async Implementation of Model Context Protocol (MCP)"
+repository = "https://github.com/DistrAI/async-mcp"
 
 license = "Apache-2.0"
 [dependencies]

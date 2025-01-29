@@ -47,7 +47,9 @@ impl<T: Transport> Client<T> {
             "Initialized with protocol version: {}",
             response.protocol_version
         );
-        self.protocol.notify("notifications/initialized", None)?;
+        self.protocol
+            .notify("notifications/initialized", None)
+            .await?;
         Ok(response)
     }
 

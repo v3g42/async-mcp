@@ -125,7 +125,13 @@ pub struct ResourceContents {
     pub mime_type: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadResourceRequest {
+    pub uri: Url,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -143,7 +149,7 @@ pub struct ToolsListResponse {
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
 }
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PromptsListResponse {
     pub prompts: Vec<Prompt>,
@@ -153,7 +159,7 @@ pub struct PromptsListResponse {
     pub meta: Option<HashMap<String, serde_json::Value>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Prompt {
     pub name: String,
@@ -163,7 +169,7 @@ pub struct Prompt {
     pub arguments: Option<Vec<PromptArgument>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PromptArgument {
     pub name: String,
@@ -173,7 +179,7 @@ pub struct PromptArgument {
     pub required: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourcesListResponse {
     pub resources: Vec<Resource>,
@@ -183,7 +189,7 @@ pub struct ResourcesListResponse {
     pub meta: Option<HashMap<String, serde_json::Value>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Resource {
     pub uri: Url,
