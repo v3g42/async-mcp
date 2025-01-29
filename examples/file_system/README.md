@@ -37,7 +37,7 @@ similar to the [Typescript Example](https://github.com/modelcontextprotocol/serv
 
 ### Build and Install Binary
 ```bash
-cd mcp-sdk/examples/file_system
+cd async-mcp/examples/file_system
 cargo install --path .
 ```
 This will build the binary and install it to your local cargo bin directory. Later you will need to configure Claude Desktop to use this binary.
@@ -62,3 +62,10 @@ Modify the `claude_desktop_config.json` file to include the following configurat
 Save the file, and restart Claude Desktop.
 ## What will it look like
 <img width="546" alt="Screenshot 2024-11-30 at 12 44 19 PM" src="https://github.com/user-attachments/assets/24a9f249-1d79-4c34-ba65-59aa59705a2b">
+
+## Test locally
+```
+cat << 'EOF' | cargo run --bin file_system
+{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "list_directory", "arguments": {"path": "."}}, "id": 1}
+EOF
+```
