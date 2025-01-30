@@ -11,7 +11,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-async-mcp = "0.0.1"
+async-mcp = "0.0.5"
 ```
 
 ## Overview
@@ -23,6 +23,7 @@ This is an implementation of the [Model Context Protocol](https://github.com/mod
 - Server-Sent Events (SSE)
 - Standard IO (Stdio) 
 - In-Memory Channel
+- Websockets
 
 ## Usage Examples
 
@@ -47,13 +48,19 @@ let server = Server::builder(StdioTransport)
     .build();
 ```
 
-#### Using SSE Transport
+#### Run Http Server supporting both SSE and WS 
 ```rust
-run_sse_server(3004, None, |transport| async move {
+run_http_server(3004, None, |transport| async move {
     let server = build_server(transport);
     Ok(server)
 })
 .await?;
+```
+
+Local Endpoints
+```
+WebSocket endpoint: ws://127.0.0.1:3004/ws
+SSE endpoint: http://127.0.0.1:3004/sse
 ```
 
 ### Client Implementation
@@ -119,6 +126,7 @@ For the complete feature set, please refer to the [MCP specification](https://sp
   - [x] Stdio
   - [x] In-Memory Channel
   - [x] SSE
+  - [x] Websockets
 
 ### Server Features
 - [x] Tools Support

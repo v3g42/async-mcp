@@ -10,7 +10,7 @@ default-members = ["examples/file_system", "examples/pingpong"]
 # Your existing package configuration stays here
 [package]
 name = "async-mcp"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2021"
 description = "Async Implementation of Model Context Protocol (MCP)"
 repository = "https://github.com/DistriAi/async-mcp"
