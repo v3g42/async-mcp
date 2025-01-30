@@ -67,7 +67,10 @@ let transport = ClientStdioTransport::new("<CMD>", &[])?;
 let transport = ClientInMemoryTransport::new(|t| tokio::spawn(inmemory_server(t)));
 
 // SSE Transport
-let transport = ClientSseTransport::new(server_url);
+let transport = ClientSseTransportBuilder::new(server_url).build();
+
+// WS Transport
+let transport = async_mcp::transport::ClientWsTransportBuilder::new("ws://localhost:3004/ws".to_string()).build();
 ```
 
 #### Making Requests

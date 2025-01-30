@@ -1,5 +1,5 @@
 use anyhow::Result;
-use async_mcp::{run_sse_server, transport::ServerStdioTransport};
+use async_mcp::{run_http_server, transport::ServerStdioTransport};
 use clap::{Parser, ValueEnum};
 use file_system::server::build_server;
 
@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
                 .map_err(|e| anyhow::anyhow!("Server error: {}", e))?;
         }
         TransportType::Sse => {
-            run_sse_server(3004, None, |transport| async move {
+            run_http_server(3004, None, |transport| async move {
                 let server = build_server(transport);
                 Ok(server)
             })

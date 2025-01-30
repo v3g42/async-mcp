@@ -3,7 +3,9 @@ use std::time::Duration;
 use anyhow::Result;
 use async_mcp::{
     protocol::RequestOptions,
-    transport::{ClientInMemoryTransport, ClientSseTransport, ClientStdioTransport, Transport},
+    transport::{
+        ClientInMemoryTransport, ClientSseTransportBuilder, ClientStdioTransport, Transport,
+    },
 };
 use clap::{Parser, ValueEnum};
 use pingpong::inmemory_server;
@@ -22,6 +24,7 @@ enum TransportType {
     Stdio,
     InMemory,
     Sse,
+    Ws,
 }
 
 #[tokio::main]
@@ -55,7 +58,8 @@ async fn main() -> Result<()> {
                 .await?
         }
         TransportType::Sse => {
-            let transport = ClientSseTransport::new("http://localhost:3004".to_string());
+            let transport =
+                ClientSseTransportBuilder::new("http://localhost:3004".to_string()).build();
             transport.open().await?;
             // Create and start client
             let client = async_mcp::client::ClientBuilder::new(transport.clone()).build();
@@ -76,6 +80,26 @@ async fn main() -> Result<()> {
                 ClientInMemoryTransport::new(|t| tokio::spawn(inmemory_server(t)));
             client_transport.open().await?;
             let client = async_mcp::client::ClientBuilder::new(client_transport.clone()).build();
+            let client_clone = client.clone();
+            let _client_handle = tokio::spawn(async move { client_clone.start().await });
+
+            // Make a request
+            client
+                .request(
+                    "tools/call",
+                    Some(json!({"name": "ping", "arguments": {}})),
+                    RequestOptions::default().timeout(Duration::from_secs(5)),
+                )
+                .await?
+        }
+        TransportType::Ws => {
+            let transport = async_mcp::transport::ClientWsTransportBuilder::new(
+                "ws://localhost:3004/ws".to_string(),
+            )
+            .build();
+            transport.open().await?;
+            // Create and start client
+            let client = async_mcp::client::ClientBuilder::new(transport.clone()).build();
             let client_clone = client.clone();
             let _client_handle = tokio::spawn(async move { client_clone.start().await });
 
