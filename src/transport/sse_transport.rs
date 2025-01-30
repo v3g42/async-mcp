@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use jsonwebtoken::{encode, EncodingKey, Header};
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc, Mutex};
@@ -81,24 +82,12 @@ pub struct ClientSseTransport {
     client: reqwest::Client,
     auth_config: Option<AuthConfig>,
     session_id: Arc<Mutex<Option<String>>>,
+    headers: HashMap<String, String>,
 }
 
 impl ClientSseTransport {
-    pub fn new(server_url: String) -> Self {
-        let (tx, rx) = mpsc::channel(100);
-        Self {
-            tx,
-            rx: Arc::new(Mutex::new(rx)),
-            server_url,
-            client: reqwest::Client::new(),
-            auth_config: None,
-            session_id: Arc::new(Mutex::new(None)),
-        }
-    }
-
-    pub fn with_auth(mut self, jwt_secret: String) -> Self {
-        self.auth_config = Some(AuthConfig { jwt_secret });
-        self
+    pub fn builder(url: String) -> ClientSseTransportBuilder {
+        ClientSseTransportBuilder::new(url)
     }
 
     fn generate_token(&self) -> Result<String> {
@@ -191,6 +180,46 @@ impl ClientSseTransport {
     }
 }
 
+#[derive(Default)]
+pub struct ClientSseTransportBuilder {
+    server_url: String,
+    auth_config: Option<AuthConfig>,
+    headers: HashMap<String, String>,
+}
+
+impl ClientSseTransportBuilder {
+    pub fn new(server_url: String) -> Self {
+        Self {
+            server_url,
+            auth_config: None,
+            headers: HashMap::new(),
+        }
+    }
+
+    pub fn with_auth(mut self, jwt_secret: String) -> Self {
+        self.auth_config = Some(AuthConfig { jwt_secret });
+        self
+    }
+
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn build(self) -> ClientSseTransport {
+        let (tx, rx) = mpsc::channel(100);
+        ClientSseTransport {
+            tx,
+            rx: Arc::new(Mutex::new(rx)),
+            server_url: self.server_url,
+            client: reqwest::Client::new(),
+            auth_config: self.auth_config,
+            session_id: Arc::new(Mutex::new(None)),
+            headers: self.headers,
+        }
+    }
+}
+
 #[async_trait]
 impl Transport for ClientSseTransport {
     async fn receive(&self) -> Result<Option<Message>> {
@@ -240,10 +269,18 @@ impl Transport for ClientSseTransport {
         let server_url = self.server_url.clone();
         let auth_config = self.auth_config.clone();
         let session_id = self.session_id.clone();
+        let headers = self.headers.clone();
 
         let handle = tokio::spawn(async move {
-            let request = reqwest::Client::new().get(&format!("{}/sse", server_url));
-            let request = if let Some(auth_config) = auth_config {
+            let mut request = reqwest::Client::new().get(&format!("{}/sse", server_url));
+
+            // Add custom headers
+            for (key, value) in &headers {
+                request = request.header(key, value);
+            }
+
+            // Add auth header if configured
+            if let Some(auth_config) = auth_config {
                 let claims = Claims {
                     iat: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as usize,
                     exp: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as usize + 3600,
@@ -255,10 +292,8 @@ impl Transport for ClientSseTransport {
                     &EncodingKey::from_secret(auth_config.jwt_secret.as_bytes()),
                 )?;
 
-                request.header("Authorization", format!("Bearer {}", token))
-            } else {
-                request
-            };
+                request = request.header("Authorization", format!("Bearer {}", token));
+            }
 
             let mut event_stream = request.send().await?.bytes_stream();
 

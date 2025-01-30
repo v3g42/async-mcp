@@ -10,7 +10,7 @@ default-members = ["examples/file_system", "examples/pingpong"]
 # Your existing package configuration stays here
 [package]
 name = "async-mcp"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 description = "Async Implementation of Model Context Protocol (MCP)"
 repository = "https://github.com/DistriAi/async-mcp"
@@ -35,5 +35,7 @@ tokio-stream = "0.1"
 futures = "0.3"
 jsonwebtoken = "8.1"
 uuid = { version = "1.0", features = ["v4"] }
+actix-ws = "0.2.5"
+tokio-tungstenite = "0.21"
 [dev-dependencies]
 tracing-subscriber = "0.3"
