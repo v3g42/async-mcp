@@ -11,7 +11,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-async-mcp = "0.0.5"
+async-mcp = "0.0.6"
 ```
 
 ## Overview

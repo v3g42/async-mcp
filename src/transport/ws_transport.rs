@@ -3,10 +3,11 @@ use actix_ws::{Message as WsMessage, Session};
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::{SinkExt, StreamExt};
-use std::collections::HashMap;
+use reqwest::header::{HeaderName, HeaderValue};
 use std::sync::Arc;
+use std::{collections::HashMap, str::FromStr};
 use tokio::sync::{broadcast, Mutex};
-use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
+use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message as TungsteniteMessage};
 use tracing::{debug, info};
 
 #[derive(Clone)]
@@ -149,7 +150,7 @@ impl Transport for ClientWsTransport {
         let text = serde_json::to_string(message)?;
         if let Some(write) = self.ws_write.lock().await.as_mut() {
             debug!("Client sending message: {}", text);
-            write.send(TungsteniteMessage::Text(text)).await?;
+            write.send(TungsteniteMessage::Text(text.into())).await?;
         } else {
             debug!("Client send called but writer is None");
         }
@@ -159,21 +160,19 @@ impl Transport for ClientWsTransport {
     async fn open(&self) -> Result<()> {
         info!("Opening WebSocket connection to {}", self.url);
 
-        let mut request_builder = reqwest::Client::new()
-            .get(&self.url)
-            .header("Connection", "Upgrade")
-            .header("Upgrade", "websocket")
-            .header("Sec-WebSocket-Version", "13");
-
-        for (key, value) in &self.headers {
-            debug!("Adding header: {} = {}", key, value);
-            request_builder = request_builder.header(key, value);
+        let mut request = self.url.clone().into_client_request().unwrap();
+        // MCP servers seem to be expecting this as protocol
+        request.headers_mut().insert(
+            "Sec-WebSocket-Protocol",
+            HeaderValue::from_str("mcp").unwrap(),
+        );
+        for (k, v) in &self.headers {
+            request.headers_mut().insert(
+                HeaderName::from_str(k).unwrap(),
+                HeaderValue::from_str(v).unwrap(),
+            );
         }
-
-        let request = request_builder.build()?;
-        let url = request.url().clone();
-        let (ws_stream, response) =
-            tokio_tungstenite::connect_async_with_config(url, None, false).await?;
+        let (ws_stream, response) = tokio_tungstenite::connect_async(request).await?;
 
         info!(
             "WebSocket connection established. Response status: {}",
