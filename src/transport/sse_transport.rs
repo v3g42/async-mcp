@@ -3,7 +3,7 @@ use crate::sse::middleware::{AuthConfig, Claims};
 use super::{Message, Transport};
 
 use actix_web::web::Bytes;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use futures::StreamExt;
 use jsonwebtoken::{encode, EncodingKey, Header};
@@ -431,7 +431,6 @@ impl Transport for ClientSseTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::{JsonRpcMessage, JsonRpcRequest, JsonRpcVersion};
 
     #[test]
     fn test_parse_large_sse_message() {

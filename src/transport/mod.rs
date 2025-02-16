@@ -2,9 +2,13 @@
 //! handles the serialization and deserialization of message
 //! handles send and receive of messages
 //! defines transport layer types
-use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+
+mod error;
+pub use error::{TransportError, TransportErrorCode};
+
+pub type Result<T> = std::result::Result<T, TransportError>;
 
 mod stdio_transport;
 pub use stdio_transport::*;
@@ -23,16 +27,35 @@ pub type Message = JsonRpcMessage;
 #[async_trait]
 pub trait Transport: Send + Sync + 'static {
     /// Send a message to the transport
+    /// 
+    /// # Errors
+    /// - `TransportErrorCode::ConnectionClosed` if the connection is closed
+    /// - `TransportErrorCode::MessageTooLarge` if the message exceeds size limits
+    /// - `TransportErrorCode::MessageSendFailed` if sending fails
     async fn send(&self, message: &Message) -> Result<()>;
 
     /// Receive a message from the transport
-    /// this is blocking call
+    /// This is a blocking call that returns None when the connection is closed
+    /// 
+    /// # Errors
+    /// - `TransportErrorCode::ConnectionClosed` if the connection is closed
+    /// - `TransportErrorCode::MessageReceiveFailed` if receiving fails
+    /// - `TransportErrorCode::InvalidMessage` if message parsing fails
     async fn receive(&self) -> Result<Option<Message>>;
 
-    /// open the transport
+    /// Open the transport connection
+    /// 
+    /// # Errors
+    /// - `TransportErrorCode::ConnectionFailed` if connection fails
+    /// - `TransportErrorCode::HandshakeFailed` if protocol handshake fails
+    /// - `TransportErrorCode::AuthenticationFailed` if auth fails
     async fn open(&self) -> Result<()>;
 
-    /// Close the transport
+    /// Close the transport connection
+    /// 
+    /// # Errors
+    /// - `TransportErrorCode::ConnectionClosed` if already closed
+    /// - `TransportErrorCode::InvalidState` if in invalid state
     async fn close(&self) -> Result<()>;
 }
 

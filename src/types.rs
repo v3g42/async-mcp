@@ -45,6 +45,53 @@ pub struct ServerCapabilities {
     pub prompts: Option<PromptCapabilities>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resources: Option<ResourceCapabilities>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<ProgressCapabilities>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completion: Option<CompletionCapabilities>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct CompletionCapabilities {
+    pub list_changed: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct ProgressCapabilities {
+    pub window: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Progress {
+    pub token: String,
+    pub value: ProgressValue,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgressValue {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub percentage: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cancellable: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgressCancelRequest {
+    pub token: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

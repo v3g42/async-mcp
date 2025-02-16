@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{atomic::{AtomicU64, Ordering}, Arc, RwLock},
 };
 
 use crate::{
@@ -13,7 +13,7 @@ use super::{
     transport::Transport,
     types::{
         ClientCapabilities, Implementation, InitializeRequest, InitializeResponse,
-        ServerCapabilities, LATEST_PROTOCOL_VERSION,
+        Progress, ProgressValue, ServerCapabilities, LATEST_PROTOCOL_VERSION,
     },
 };
 use anyhow::Result;
@@ -26,6 +26,7 @@ pub struct ServerState {
     client_capabilities: Option<ClientCapabilities>,
     client_info: Option<Implementation>,
     initialized: bool,
+    progress_counter: Arc<AtomicU64>,
 }
 
 #[derive(Clone)]
@@ -113,6 +114,42 @@ impl<T: Transport> ServerBuilder<T> {
 }
 
 impl<T: Transport> Server<T> {
+    // Progress support methods
+    pub async fn create_progress(&self, value: ProgressValue) -> Result<String> {
+        let token = format!(
+            "progress-{}",
+            self.state
+                .read()
+                .map_err(|_| anyhow::anyhow!("Lock poisoned"))?
+                .progress_counter
+                .fetch_add(1, Ordering::SeqCst)
+        );
+
+        let progress = Progress {
+            token: token.clone(),
+            value,
+            meta: None,
+        };
+
+        self.protocol
+            .notify("$/progress", Some(serde_json::to_value(progress)?))
+            .await?;
+
+        Ok(token)
+    }
+
+    pub async fn update_progress(&self, token: String, value: ProgressValue) -> Result<()> {
+        let progress = Progress {
+            token,
+            value,
+            meta: None,
+        };
+
+        self.protocol
+            .notify("$/progress", Some(serde_json::to_value(progress)?))
+            .await
+    }
+
     pub fn builder(transport: T) -> ServerBuilder<T> {
         ServerBuilder {
             protocol: Protocol::builder(transport),
@@ -130,6 +167,7 @@ impl<T: Transport> Server<T> {
             client_capabilities: None,
             client_info: None,
             initialized: false,
+            progress_counter: Arc::new(AtomicU64::new(0)),
         }));
 
         // Initialize protocol with handlers
