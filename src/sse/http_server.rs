@@ -38,7 +38,7 @@ pub struct SessionState {
         dyn Fn(
                 ServerHttpTransport,
             )
-                -> futures::future::BoxFuture<'static, Result<Server<ServerHttpTransport>>>
+                -> futures::future::BoxFuture<'static, Result<Server>>
             + Send
             + Sync,
     >,
@@ -52,7 +52,7 @@ pub async fn run_http_server<F, Fut>(
 ) -> Result<()>
 where
     F: Fn(ServerHttpTransport) -> Fut + Send + Sync + 'static,
-    Fut: futures::Future<Output = Result<Server<ServerHttpTransport>>> + Send + 'static,
+    Fut: futures::Future<Output = Result<Server>> + Send + 'static,
 {
     info!("Starting server on http://127.0.0.1:{}", port);
     info!("WebSocket endpoint: ws://127.0.0.1:{}/ws", port);
@@ -79,7 +79,7 @@ pub async fn http_server(
         dyn Fn(
                 ServerHttpTransport,
             )
-                -> futures::future::BoxFuture<'static, Result<Server<ServerHttpTransport>>>
+                -> futures::future::BoxFuture<'static, Result<Server>>
             + Send
             + Sync,
     >,

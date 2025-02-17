@@ -32,8 +32,10 @@ impl RootsCallback for RootsCallbackFn {
 /// A registered roots handler
 pub(crate) struct RegisteredRoots {
     /// The callback to list roots
+    #[allow(dead_code)]
     pub list_callback: Arc<dyn RootsCallback>,
     /// Whether the handler supports root change notifications
+    #[allow(dead_code)]
     pub supports_change_notifications: bool,
 }
 
@@ -53,6 +55,7 @@ impl RegisteredRoots {
     }
 
     /// List all available roots
+    #[allow(dead_code)]
     pub async fn list_roots(&self) -> anyhow::Result<Vec<Root>> {
         self.list_callback.call().await
     }

@@ -5,6 +5,9 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use crate::server::error::ServerError;
+
+type Result<T> = std::result::Result<T, ServerError>;
 
 /// Message role in a sampling conversation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,8 +76,9 @@ pub enum StopReason {
     EndTurn,
     StopSequence,
     MaxTokens,
+    Unknown,
     #[serde(other)]
-    Other(String),
+    Other,
 }
 
 /// Result of a sampling request
@@ -91,30 +95,27 @@ pub trait SamplingCallback: Send + Sync {
     fn call(
         &self,
         request: SamplingRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<SamplingResult>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<SamplingResult>> + Send + 'static>>;
 }
 
-struct SamplingCallbackFn(
-    Box<
-        dyn Fn(SamplingRequest) -> Pin<Box<dyn Future<Output = anyhow::Result<SamplingResult>> + Send>>
-            + Send
-            + Sync,
-    >,
-);
-
-impl SamplingCallback for SamplingCallbackFn {
+impl<F, Fut> SamplingCallback for F
+where
+    F: Fn(SamplingRequest) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<SamplingResult>> + Send + 'static,
+{
     fn call(
         &self,
         request: SamplingRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<SamplingResult>> + Send>> {
-        (self.0)(request)
+    ) -> Pin<Box<dyn Future<Output = Result<SamplingResult>> + Send + 'static>> {
+        Box::pin(self(request))
     }
 }
 
 /// A registered sampling handler
 pub(crate) struct RegisteredSampling {
     /// The callback to handle sampling requests
-    pub callback: Arc<dyn SamplingCallback>,
+    #[allow(dead_code)]
+    pub callback: Arc<dyn Fn(SamplingRequest) -> Pin<Box<dyn Future<Output = Result<SamplingResult>> + Send + 'static>> + Send + Sync>,
 }
 
 #[cfg(test)]
@@ -146,7 +147,7 @@ mod tests {
             metadata: None,
         };
 
-        let callback = SamplingCallbackFn(Box::new(|req: SamplingRequest| {
+        let callback = |_req: SamplingRequest| {
             Box::pin(async move {
                 Ok(SamplingResult {
                     model: "claude-3".to_string(),
@@ -156,10 +157,10 @@ mod tests {
                         text: "Hi there!".to_string(),
                     },
                 })
-            })
-        }));
+            }) as Pin<Box<dyn Future<Output = Result<SamplingResult>> + Send>>
+        };
 
-        let result = callback.call(request).await.unwrap();
+        let result = callback(request).await.unwrap();
         assert_eq!(result.model, "claude-3");
         if let MessageContent::Text { text } = result.content {
             assert_eq!(text, "Hi there!");

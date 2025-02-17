@@ -2,7 +2,7 @@ use super::{
     ClientSseTransport, ClientWsTransport, Message, ServerSseTransport, ServerWsTransport,
     Transport,
 };
-use anyhow::Result;
+use super::Result;
 pub enum ServerHttpTransport {
     Sse(ServerSseTransport),
     Ws(ServerWsTransport),

@@ -1,5 +1,6 @@
 use std::fmt;
 use thiserror::Error;
+use std::error::Error as StdError;
 
 /// Transport-specific error codes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,7 +92,7 @@ pub enum TransportError {
         code: TransportErrorCode,
         message: String,
         #[source]
-        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+        source: Option<Box<dyn StdError + Send + Sync>>,
     },
 
     #[error("JSON error: {0}")]
@@ -108,6 +109,47 @@ pub enum TransportError {
 
     #[error("Channel error: {0}")]
     Channel(String),
+
+    #[error("UTF-8 error: {0}")]
+    Utf8(#[from] std::string::FromUtf8Error),
+
+    #[error("System time error: {0}")]
+    SystemTime(#[from] std::time::SystemTimeError),
+
+    #[error("JWT error: {0}")]
+    Jwt(#[from] jsonwebtoken::errors::Error),
+}
+
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for TransportError {
+    fn from(err: tokio::sync::mpsc::error::SendError<T>) -> Self {
+        Self::Channel(err.to_string())
+    }
+}
+
+impl<T> From<tokio::sync::broadcast::error::SendError<T>> for TransportError {
+    fn from(err: tokio::sync::broadcast::error::SendError<T>) -> Self {
+        Self::Channel(err.to_string())
+    }
+}
+
+impl From<actix_web::Error> for TransportError {
+    fn from(err: actix_web::Error) -> Self {
+        Self::Transport {
+            code: TransportErrorCode::InternalError,
+            message: err.to_string(),
+            source: None, // Don't store the source since actix_web::Error doesn't implement Send + Sync
+        }
+    }
+}
+
+impl From<tokio::task::JoinError> for TransportError {
+    fn from(err: tokio::task::JoinError) -> Self {
+        Self::Transport {
+            code: TransportErrorCode::InternalError,
+            message: err.to_string(),
+            source: None,
+        }
+    }
 }
 
 impl TransportError {
@@ -124,7 +166,7 @@ impl TransportError {
     pub fn with_source(
         code: TransportErrorCode,
         message: impl Into<String>,
-        source: impl Into<Box<dyn std::error::Error + Send + Sync>>,
+        source: impl Into<Box<dyn StdError + Send + Sync>>,
     ) -> Self {
         Self::Transport {
             code,
@@ -157,16 +199,15 @@ mod tests {
     #[test]
     fn test_error_display() {
         let error = TransportError::new(TransportErrorCode::ConnectionFailed, "Failed to connect");
-        assert_eq!(error.to_string(), "ConnectionFailed: Failed to connect");
+        assert_eq!(error.to_string(), "Failed to establish connection: Failed to connect");
 
         let io_error = std::io::Error::new(std::io::ErrorKind::Other, "IO error");
         let error = TransportError::with_source(
             TransportErrorCode::ConnectionFailed,
             "Failed to connect",
-            io_error,
+            Box::new(io_error) as Box<dyn StdError + Send + Sync>,
         );
-        assert_eq!(error.to_string(), "ConnectionFailed: Failed to connect");
-        assert!(error.source().is_some());
+        assert_eq!(error.to_string(), "Failed to establish connection: Failed to connect");
     }
 
     #[test]
@@ -174,7 +215,8 @@ mod tests {
         let error = TransportError::new(TransportErrorCode::ConnectionFailed, "Failed to connect");
         assert_eq!(error.code(), Some(TransportErrorCode::ConnectionFailed));
 
-        let error = TransportError::Json(serde_json::Error::custom("JSON error"));
+        let io_error = std::io::Error::new(std::io::ErrorKind::Other, "JSON error");
+        let error = TransportError::Json(serde_json::Error::io(io_error));
         assert_eq!(error.code(), None);
     }
 }

@@ -1,6 +1,7 @@
 use super::{Message, Transport};
+use super::Result;
+use super::error::{TransportError, TransportErrorCode};
 use actix_ws::{Message as WsMessage, Session};
-use anyhow::Result;
 use async_trait::async_trait;
 use futures::{SinkExt, StreamExt};
 use reqwest::header::{HeaderName, HeaderValue};
@@ -103,12 +104,15 @@ impl Transport for ServerWsTransport {
     }
 
     async fn send(&self, message: &Message) -> Result<()> {
-        let text = serde_json::to_string(message)?;
+        let text = serde_json::to_string(message).map_err(|e| 
+            TransportError::new(TransportErrorCode::InvalidMessage, format!("Failed to serialize message: {}", e)))?;
         if let Some(session) = self.session.lock().await.as_mut() {
             debug!("Server sending message: {}", text);
-            session.text(text).await?;
+            session.text(text).await.map_err(|e| 
+                TransportError::new(TransportErrorCode::MessageSendFailed, format!("Failed to send WebSocket message: {}", e)))?;
         } else {
             debug!("Server send called but session is None");
+            return Err(TransportError::new(TransportErrorCode::InvalidState, "WebSocket session not initialized"));
         }
         Ok(())
     }
@@ -120,7 +124,8 @@ impl Transport for ServerWsTransport {
     async fn close(&self) -> Result<()> {
         info!("Server WebSocket connection closing");
         if let Some(session) = self.session.lock().await.take() {
-            session.close(None).await?;
+            session.close(None).await.map_err(|e| 
+                TransportError::new(TransportErrorCode::ConnectionClosed, format!("Failed to close WebSocket connection: {}", e)))?;
         }
         Ok(())
     }
@@ -147,12 +152,15 @@ impl Transport for ClientWsTransport {
     }
 
     async fn send(&self, message: &Message) -> Result<()> {
-        let text = serde_json::to_string(message)?;
+        let text = serde_json::to_string(message).map_err(|e| 
+            TransportError::new(TransportErrorCode::InvalidMessage, format!("Failed to serialize message: {}", e)))?;
         if let Some(write) = self.ws_write.lock().await.as_mut() {
             debug!("Client sending message: {}", text);
-            write.send(TungsteniteMessage::Text(text.into())).await?;
+            write.send(TungsteniteMessage::Text(text.into())).await.map_err(|e| 
+                TransportError::new(TransportErrorCode::MessageSendFailed, format!("Failed to send WebSocket message: {}", e)))?;
         } else {
             debug!("Client send called but writer is None");
+            return Err(TransportError::new(TransportErrorCode::InvalidState, "WebSocket writer not initialized"));
         }
         Ok(())
     }
@@ -160,19 +168,27 @@ impl Transport for ClientWsTransport {
     async fn open(&self) -> Result<()> {
         info!("Opening WebSocket connection to {}", self.url);
 
-        let mut request = self.url.clone().into_client_request().unwrap();
+        let mut request = self.url.clone().into_client_request().map_err(|e| 
+            TransportError::new(TransportErrorCode::WebSocketProtocolError, format!("Invalid WebSocket URL: {}", e)))?;
+        
         // MCP servers seem to be expecting this as protocol
         request.headers_mut().insert(
             "Sec-WebSocket-Protocol",
-            HeaderValue::from_str("mcp").unwrap(),
+            HeaderValue::from_str("mcp").map_err(|e| 
+                TransportError::new(TransportErrorCode::WebSocketProtocolError, format!("Invalid protocol header: {}", e)))?,
         );
+        
         for (k, v) in &self.headers {
             request.headers_mut().insert(
-                HeaderName::from_str(k).unwrap(),
-                HeaderValue::from_str(v).unwrap(),
+                HeaderName::from_str(k).map_err(|e| 
+                    TransportError::new(TransportErrorCode::WebSocketProtocolError, format!("Invalid header name {}: {}", k, e)))?,
+                HeaderValue::from_str(v).map_err(|e| 
+                    TransportError::new(TransportErrorCode::WebSocketProtocolError, format!("Invalid header value {}: {}", v, e)))?,
             );
         }
-        let (ws_stream, response) = tokio_tungstenite::connect_async(request).await?;
+        
+        let (ws_stream, response) = tokio_tungstenite::connect_async(request).await
+            .map_err(|e| TransportError::new(TransportErrorCode::WebSocketUpgradeFailed, format!("Failed to establish WebSocket connection: {}", e)))?;
 
         info!(
             "WebSocket connection established. Response status: {}",
@@ -189,7 +205,7 @@ impl Transport for ClientWsTransport {
             .lock()
             .await
             .as_ref()
-            .expect("sender should exist")
+            .ok_or_else(|| TransportError::new(TransportErrorCode::InvalidState, "WebSocket sender not initialized"))?
             .clone();
 
         // Handle receiving messages from WebSocket
@@ -203,7 +219,9 @@ impl Transport for ClientWsTransport {
                                 Ok(message) => {
                                     debug!("Received WebSocket message: {:?}", message);
                                     // Send to the broadcast channel for the transport to receive
-                                    let _ = ws_tx.send(message);
+                                    if let Err(e) = ws_tx.send(message) {
+                                        debug!("Failed to forward WebSocket message: {}", e);
+                                    }
                                 }
                                 Err(e) => debug!("Failed to parse WebSocket message: {}", e),
                             }
@@ -244,7 +262,8 @@ pub async fn handle_ws_connection(
                     match serde_json::from_str::<Message>(&text) {
                         Ok(message) => {
                             debug!("Handler received message: {:?}", message);
-                            tx.send(message)?;
+                            tx.send(message).map_err(|e| 
+                                TransportError::new(TransportErrorCode::MessageSendFailed, format!("Failed to forward message: {}", e)))?;
                         }
                         Err(e) => debug!("Failed to parse message in handler: {}", e),
                     }
@@ -252,8 +271,10 @@ pub async fn handle_ws_connection(
             }
             Ok(message) = rx.recv() => {
                 debug!("Handler sending message: {:?}", message);
-                let text = serde_json::to_string(&message)?;
-                session.text(text).await?;
+                let text = serde_json::to_string(&message).map_err(|e| 
+                    TransportError::new(TransportErrorCode::InvalidMessage, format!("Failed to serialize message: {}", e)))?;
+                session.text(text).await.map_err(|e| 
+                    TransportError::new(TransportErrorCode::MessageSendFailed, format!("Failed to send WebSocket message: {}", e)))?;
             }
             else => {
                 info!("WebSocket connection terminated");

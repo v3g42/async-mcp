@@ -1,5 +1,6 @@
 use super::{Message, Transport};
-use anyhow::Result;
+use super::error::{TransportError, TransportErrorCode};
+use super::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -30,7 +31,7 @@ impl Transport for ServerInMemoryTransport {
         let mut rx_guard = self.rx.lock().await;
         let rx = rx_guard
             .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Transport not opened"))?;
+            .ok_or_else(|| TransportError::new(TransportErrorCode::InvalidState, "Transport not opened"))?;
 
         match rx.recv().await {
             Some(message) => {
@@ -49,7 +50,7 @@ impl Transport for ServerInMemoryTransport {
         self.tx
             .send(message.clone())
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
+            .map_err(|e| TransportError::new(TransportErrorCode::MessageSendFailed, format!("Failed to send message: {}", e)))?;
         Ok(())
     }
 
@@ -92,7 +93,7 @@ impl Transport for ClientInMemoryTransport {
         let mut rx_guard = self.rx.lock().await;
         let rx = rx_guard
             .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Transport not opened"))?;
+            .ok_or_else(|| TransportError::new(TransportErrorCode::InvalidState, "Transport not opened"))?;
 
         match rx.recv().await {
             Some(message) => {
@@ -110,12 +111,12 @@ impl Transport for ClientInMemoryTransport {
         let tx_guard = self.tx.lock().await;
         let tx = tx_guard
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Transport not opened"))?;
+            .ok_or_else(|| TransportError::new(TransportErrorCode::InvalidState, "Transport not opened"))?;
 
         debug!("Client sending: {:?}", message);
         tx.send(message.clone())
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
+            .map_err(|e| TransportError::new(TransportErrorCode::MessageSendFailed, format!("Failed to send message: {}", e)))?;
         Ok(())
     }
 
@@ -142,7 +143,7 @@ impl Transport for ClientInMemoryTransport {
         *self.rx.lock().await = None;
 
         if let Some(handle) = self.server_handle.lock().await.take() {
-            handle.await?;
+            handle.await.map_err(|e| TransportError::new(TransportErrorCode::InternalError, format!("Server task failed: {}", e)))?;
         }
 
         Ok(())

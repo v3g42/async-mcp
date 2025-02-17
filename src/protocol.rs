@@ -1,10 +1,8 @@
 use super::transport::{
     JsonRpcError, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, Message,
-    Transport,
+    Transport, TransportError, TransportErrorCode,
 };
 use super::types::ErrorCode;
-use anyhow::anyhow;
-use anyhow::Result;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -19,6 +17,8 @@ use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 use tracing::debug;
+
+type Result<T> = std::result::Result<T, TransportError>;
 
 #[derive(Clone)]
 pub struct Protocol<T: Transport> {
@@ -73,17 +73,21 @@ impl<T: Transport> Protocol<T> {
         self.transport.send(&msg).await?;
 
         // Wait for response with timeout
-        match timeout(options.timeout, rx)
-            .await
-            .map_err(|_| anyhow!("Request timed out"))?
-        {
-            Ok(response) => Ok(response),
-            Err(_) => {
+        match timeout(options.timeout, rx).await {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(_)) => {
                 // Clean up the pending request if receiver was dropped
                 let mut pending = self.pending_requests.lock().await;
                 pending.remove(&id);
-                Err(anyhow!("Request cancelled"))
+                Err(TransportError::new(
+                    TransportErrorCode::MessageReceiveFailed,
+                    "Request cancelled",
+                ))
             }
+            Err(_) => Err(TransportError::new(
+                TransportErrorCode::Timeout,
+                "Request timed out",
+            )),
         }
     }
 
@@ -178,14 +182,14 @@ impl Default for RequestOptions {
 }
 
 pub struct ProtocolBuilder<T: Transport> {
-    transport: T,
+    _transport: T,
     request_handlers: HashMap<String, Box<dyn RequestHandler>>,
     notification_handlers: HashMap<String, Box<dyn NotificationHandler>>,
 }
 impl<T: Transport> ProtocolBuilder<T> {
     pub fn new(transport: T) -> Self {
         Self {
-            transport,
+            _transport: transport,
             request_handlers: HashMap::new(),
             notification_handlers: HashMap::new(),
         }
@@ -240,7 +244,7 @@ impl<T: Transport> ProtocolBuilder<T> {
 
     pub fn build(self) -> Protocol<T> {
         Protocol {
-            transport: Arc::new(self.transport),
+            transport: Arc::new(self._transport),
             request_handlers: Arc::new(Mutex::new(self.request_handlers)),
             notification_handlers: Arc::new(Mutex::new(self.notification_handlers)),
             request_id: Arc::new(AtomicU64::new(0)),
@@ -281,16 +285,18 @@ where
     Resp: Serialize + Send + Sync + 'static,
 {
     async fn handle(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
-        let params: Req = if request.params.is_none() || request.params.as_ref().unwrap().is_null()
-        {
-            serde_json::from_value(serde_json::Value::Null)?
+        let params: Req = if request.params.is_none() || request.params.as_ref().unwrap().is_null() {
+            serde_json::from_value(serde_json::Value::Null).map_err(|e| 
+                TransportError::new(TransportErrorCode::InvalidMessage, format!("Failed to deserialize null params: {}", e)))?
         } else {
-            serde_json::from_value(request.params.unwrap())?
+            serde_json::from_value(request.params.unwrap()).map_err(|e| 
+                TransportError::new(TransportErrorCode::InvalidMessage, format!("Failed to deserialize params: {}", e)))?
         };
         let result = (self.handler)(params).await?;
         Ok(JsonRpcResponse {
             id: request.id,
-            result: Some(serde_json::to_value(result)?),
+            result: Some(serde_json::to_value(result).map_err(|e| 
+                TransportError::new(TransportErrorCode::InvalidMessage, format!("Failed to serialize response: {}", e)))?),
             error: None,
             ..Default::default()
         })
@@ -317,9 +323,11 @@ where
     async fn handle(&self, notification: JsonRpcNotification) -> Result<()> {
         let params: N =
             if notification.params.is_none() || notification.params.as_ref().unwrap().is_null() {
-                serde_json::from_value(serde_json::Value::Null)?
+                serde_json::from_value(serde_json::Value::Null).map_err(|e| 
+                    TransportError::new(TransportErrorCode::InvalidMessage, format!("Failed to deserialize null params: {}", e)))?
             } else {
-                serde_json::from_value(notification.params.unwrap())?
+                serde_json::from_value(notification.params.unwrap()).map_err(|e| 
+                    TransportError::new(TransportErrorCode::InvalidMessage, format!("Failed to deserialize params: {}", e)))?
             };
         (self.handler)(params).await
     }

@@ -1,14 +1,15 @@
 use crate::{
     protocol::{Protocol, ProtocolBuilder, RequestOptions},
-    transport::Transport,
+    transport::{Transport, TransportError},
     types::{
         ClientCapabilities, Implementation, InitializeRequest, InitializeResponse,
         LATEST_PROTOCOL_VERSION,
     },
 };
 
-use anyhow::Result;
 use tracing::debug;
+
+type Result<T> = std::result::Result<T, TransportError>;
 
 #[derive(Clone)]
 pub struct Client<T: Transport> {
@@ -29,17 +30,17 @@ impl<T: Transport> Client<T> {
         let response = self
             .request(
                 "initialize",
-                Some(serde_json::to_value(request)?),
+                Some(serde_json::to_value(request).map_err(|e| TransportError::Json(e))?),
                 RequestOptions::default(),
             )
             .await?;
         let response: InitializeResponse = serde_json::from_value(response)
-            .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+            .map_err(|e| TransportError::Json(e))?;
 
         if response.protocol_version != LATEST_PROTOCOL_VERSION {
-            return Err(anyhow::anyhow!(
-                "Unsupported protocol version: {}",
-                response.protocol_version
+            return Err(TransportError::new(
+                crate::transport::TransportErrorCode::InvalidMessage,
+                format!("Unsupported protocol version: {}", response.protocol_version),
             ));
         }
 
@@ -60,9 +61,12 @@ impl<T: Transport> Client<T> {
         options: RequestOptions,
     ) -> Result<serde_json::Value> {
         let response = self.protocol.request(method, params, options).await?;
-        response
-            .result
-            .ok_or_else(|| anyhow::anyhow!("Request failed: {:?}", response.error))
+        response.result.ok_or_else(|| {
+            TransportError::new(
+                crate::transport::TransportErrorCode::InvalidMessage,
+                format!("Request failed: {:?}", response.error),
+            )
+        })
     }
 
     pub async fn start(&self) -> Result<()> {

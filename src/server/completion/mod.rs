@@ -34,21 +34,14 @@ pub struct CompletionRequest {
     pub argument: ArgumentInfo,
 }
 
-/// A completion result
+/// A completion result matching MCP protocol specs
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompletionResult {
-    pub completion: CompletionOptions,
-}
+pub struct CompletionResult(pub Vec<CompletionResultItem>);
 
-/// Completion options
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompletionOptions {
-    /// An array of completion values (max 100)
-    pub values: Vec<String>,
-    /// The total number of completion options available
-    pub total: Option<usize>,
-    /// Whether there are more options beyond those provided
-    pub has_more: Option<bool>,
+pub struct CompletionResultItem {
+    pub text: String,
+    pub finish_reason: Option<String>,
 }
 
 /// A callback that can provide completions
@@ -60,6 +53,7 @@ pub trait CompletionCallback: Send + Sync {
 /// A registered completion handler
 pub(crate) struct RegisteredCompletion {
     /// The callback to handle completion requests
+    #[allow(dead_code)]
     pub callback: Box<dyn CompletionCallback>,
 }
 

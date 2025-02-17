@@ -4,10 +4,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::completable::Completable;
-use crate::types::{GetPromptResult, Prompt, PromptArgument};
+use crate::types::{Prompt, PromptArgument, MessageContent};
 
 /// A registered prompt with metadata and callbacks
-pub(crate) struct RegisteredPrompt {
+pub struct RegisteredPrompt {
     /// The prompt metadata
     pub metadata: Prompt,
     /// Optional argument completions
@@ -16,12 +16,47 @@ pub(crate) struct RegisteredPrompt {
     pub execute_callback: Arc<dyn PromptCallback>,
 }
 
+impl std::fmt::Debug for RegisteredPrompt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegisteredPrompt")
+            .field("metadata", &self.metadata)
+            .field("argument_completions", &"<HashMap>")
+            .field("execute_callback", &"<PromptCallback>")
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GetPromptResult {
+    pub description: Option<String>,
+    pub messages: Vec<PromptMessage>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PromptMessage {
+    pub role: String,
+    pub content: MessageContent,
+}
+
+impl Default for GetPromptResult {
+    fn default() -> Self {
+        Self {
+            description: None,
+            messages: Vec::new(),
+        }
+    }
+}
+
 /// A callback that can execute a prompt
 pub trait PromptCallback: Send + Sync {
     fn call(
         &self,
         args: Option<HashMap<String, String>>,
     ) -> Pin<Box<dyn Future<Output = GetPromptResult> + Send>>;
+}
+
+impl std::fmt::Debug for dyn PromptCallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "PromptCallback") }
 }
 
 struct PromptCallbackFn(
@@ -81,14 +116,14 @@ impl PromptBuilder {
     }
 
     /// Add an optional argument to the prompt
-    pub fn optional_arg(
+    pub fn optional_arg<S: Into<String>>(
         mut self,
-        name: impl Into<String>,
-        description: Option<impl Into<String>>,
+        name: S,
+        description: Option<S>,
     ) -> Self {
         self.arguments.push(PromptArgument {
             name: name.into(),
-            description: description.map(|d| d.into()),
+            description: description.map(Into::into),
             required: Some(false),
         });
         self
@@ -109,11 +144,22 @@ impl PromptBuilder {
     pub fn build<F, Fut>(
         self,
         callback: F,
-    ) -> (Prompt, RegisteredPrompt)
+    ) -> Result<(Prompt, RegisteredPrompt), String>
     where
         F: Fn(Option<HashMap<String, String>>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = GetPromptResult> + Send + 'static,
     {
+        // Validate arguments
+        for arg in &self.arguments {
+            if let Some(required) = arg.required {
+                if required && arg.name.is_empty() {
+                    return Err(format!("Required argument must have a name"));
+                }
+            } else {
+                return Err(format!("Argument '{}' must specify if it's required", arg.name));
+            }
+        }
+
         let metadata = Prompt {
             name: self.name.clone(),
             description: self.description.clone(),
@@ -132,7 +178,7 @@ impl PromptBuilder {
             }))),
         };
 
-        (metadata, registered)
+        Ok((metadata, registered))
     }
 }
 
@@ -140,30 +186,32 @@ impl PromptBuilder {
 mod tests {
     use super::*;
     use crate::completable::CompletableString;
-    use crate::types::{PromptMessage, TextContent};
 
     #[tokio::test]
     async fn test_prompt_builder() {
         let (metadata, registered) = PromptBuilder::new("test")
             .description("A test prompt")
             .required_arg("arg1", Some("First argument"))
-            .optional_arg("arg2", None)
+            .optional_arg("arg2".to_string(), None)
             .with_completion(
                 "arg1",
-                CompletableString::new(|input| async move { vec![format!("{}_completed", input)] }),
+                CompletableString::new(|input: &str| {
+                    let input = input.to_string();
+                    async move { vec![format!("{}_completed", input)] }
+                }),
             )
             .build(|_args| async move {
                 GetPromptResult {
                     description: None,
                     messages: vec![PromptMessage {
                         role: "assistant".to_string(),
-                        content: TextContent {
-                            r#type: "text".to_string(),
+                        content: MessageContent::Text {
                             text: "Test response".to_string(),
                         },
                     }],
                 }
-            });
+            })
+            .expect("Failed to build prompt");
 
         assert_eq!(metadata.name, "test");
         assert_eq!(metadata.description, Some("A test prompt".to_string()));
@@ -176,6 +224,25 @@ mod tests {
             .execute_callback
             .call(Some(HashMap::new()))
             .await;
-        assert_eq!(result.messages[0].content.text, "Test response");
+        match &result.messages[0].content {
+            MessageContent::Text { text } => assert_eq!(text, "Test response"),
+            _ => panic!("Expected text content"),
+        }
+    }
+
+    #[test]
+    fn test_prompt_builder_invalid_args() {
+        let result = PromptBuilder::new("test")
+            .required_arg("", Some("Invalid required arg"))
+            .build(|_args| async move { GetPromptResult::default() });
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Required argument must have a name");
+
+        let result = PromptBuilder::new("test")
+            .optional_arg("arg", None)
+            .build(|_args| async move { GetPromptResult::default() });
+
+        assert!(result.is_ok());
     }
 }

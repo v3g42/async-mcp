@@ -3,19 +3,22 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use anyhow::Result;
 use url::Url;
 
 use crate::server::{
     completion::{CompletionCallback, RegisteredCompletion},
+    error::ServerError,
     prompt::{PromptBuilder, RegisteredPrompt},
-    resource::{RegisteredResource, RegisteredResourceTemplate, ResourceTemplate},
+    resource::{RegisteredResource, RegisteredResourceTemplate, ResourceTemplate, ReadResourceResult, ReadResourceCallbackFn},
     roots::{RegisteredRoots, Root},
-    sampling::{RegisteredSampling, SamplingCallbackFn, SamplingRequest, SamplingResult},
+    sampling::{RegisteredSampling, SamplingRequest, SamplingResult},
     tool::{RegisteredTool, ToolBuilder},
+    Server,
 };
+use crate::transport::Transport;
 use crate::types::{Implementation, Prompt, Resource, ServerCapabilities, Tool};
-use crate::{Server, Transport};
+
+type Result<T> = std::result::Result<T, ServerError>;
 
 /// High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
 pub struct McpServer {
@@ -62,13 +65,13 @@ impl McpServer {
     /// Register a sampling handler
     pub fn register_sampling(
         &mut self,
-        callback: impl Fn(SamplingRequest) -> Pin<Box<dyn Future<Output = anyhow::Result<SamplingResult>> + Send>>
+        callback: impl Fn(SamplingRequest) -> Pin<Box<dyn Future<Output = Result<SamplingResult>> + Send + 'static>>
             + Send
             + Sync
             + 'static,
     ) {
         self.registered_sampling = Some(RegisteredSampling {
-            callback: Arc::new(SamplingCallbackFn(Box::new(callback))),
+            callback: Arc::new(callback),
         });
 
         // Register sampling capability
@@ -81,14 +84,19 @@ impl McpServer {
     /// Register a roots handler
     pub fn register_roots(
         &mut self,
-        list_callback: impl Fn() -> Pin<Box<dyn Future<Output = anyhow::Result<Vec<Root>>> + Send>>
+        list_callback: impl Fn() -> Pin<Box<dyn Future<Output = Result<Vec<Root>>> + Send>>
             + Send
             + Sync
             + 'static,
         supports_change_notifications: bool,
     ) {
+        let wrapped_callback = move || -> Pin<Box<dyn Future<Output = anyhow::Result<Vec<Root>>> + Send>> {
+            let fut = list_callback();
+            Box::pin(async move { fut.await.map_err(|e| anyhow::anyhow!("{}", e)) })
+        };
+
         self.registered_roots = Some(RegisteredRoots::new(
-            list_callback,
+            wrapped_callback,
             supports_change_notifications,
         ));
 
@@ -100,8 +108,8 @@ impl McpServer {
     }
 
     /// Connect to the given transport and start listening for messages
-    pub async fn connect(&self, transport: impl Transport) -> Result<()> {
-        self.server.connect(transport).await
+    pub async fn connect(&self, _transport: impl Transport) -> Result<()> {
+        self.server.connect(_transport).await
     }
 
     /// Register a resource at a fixed URI
@@ -110,13 +118,19 @@ impl McpServer {
         name: impl Into<String>,
         uri: impl Into<String>,
         metadata: Option<Resource>,
-        read_callback: impl Fn(&Url) -> Result<Vec<u8>> + Send + Sync + 'static,
+        read_callback: impl Fn(&Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send + 'static>>
+            + Send 
+            + Sync
+            + 'static,
     ) {
         let uri = uri.into();
         let name = name.into();
 
         let metadata = metadata.unwrap_or_else(|| Resource {
-            uri: uri.clone(),
+            uri: Url::parse(&uri).unwrap_or_else(|e| {
+                eprintln!("Warning: Invalid URI '{}': {}", uri, e);
+                Url::parse("about:invalid").unwrap()
+            }),
             name: name.clone(),
             description: None,
             mime_type: None,
@@ -124,10 +138,11 @@ impl McpServer {
 
         self.registered_resources.insert(
             uri.clone(),
-            RegisteredResource {
+            RegisteredResource::new(
                 metadata,
-                read_callback: Arc::new(read_callback),
-            },
+                read_callback,
+                false,
+            ),
         );
 
         // Register capabilities if this is the first resource
@@ -145,12 +160,18 @@ impl McpServer {
         name: impl Into<String>,
         template: ResourceTemplate,
         metadata: Option<Resource>,
-        read_callback: impl Fn(&Url) -> Result<Vec<u8>> + Send + Sync + 'static,
+        read_callback: impl Fn(&Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send + 'static>>
+            + Send
+            + Sync
+            + 'static,
     ) {
         let name = name.into();
 
         let metadata = metadata.unwrap_or_else(|| Resource {
-            uri: template.uri_template().to_string(),
+            uri: Url::parse(&template.uri_template()).unwrap_or_else(|e| {
+                eprintln!("Warning: Invalid URI template: {}", e);
+                Url::parse("about:invalid").unwrap()
+            }),
             name: name.clone(),
             description: None,
             mime_type: None,
@@ -161,7 +182,7 @@ impl McpServer {
             RegisteredResourceTemplate {
                 template,
                 metadata,
-                read_callback: Arc::new(read_callback),
+                read_callback: Arc::new(ReadResourceCallbackFn(Box::new(read_callback))),
             },
         );
 

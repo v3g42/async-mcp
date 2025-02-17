@@ -275,7 +275,6 @@ For the complete feature set, please refer to the [MCP specification](https://sp
 - [ ] Metrics
 
 ### Utilities
-- [x] Ping Support
 - [x] Cancellation Support
 - [x] Progress Tracking
   - [x] Progress Notifications

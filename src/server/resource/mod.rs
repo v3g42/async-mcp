@@ -5,9 +5,12 @@ use std::sync::{Arc, RwLock};
 use url::Url;
 
 use crate::completable::Completable;
-use crate::types::{ListResourcesResult, ReadResourceResult, Resource, ResourceContents};
+use crate::types::{Resource, ResourceContents};
 use std::collections::HashSet;
 use tokio::sync::broadcast;
+
+pub type ListResourcesResult = Vec<Resource>;
+pub type ReadResourceResult = Vec<ResourceContents>;
 
 /// A channel for resource update notifications
 #[derive(Clone)]
@@ -29,19 +32,19 @@ impl ResourceUpdateChannel {
     }
 
     /// Subscribe to updates for a resource
-    pub fn subscribe(&self, uri: String) -> broadcast::Receiver<String> {
-        self.subscribed_uris.write().unwrap().insert(uri);
+    pub fn subscribe(&self, uri: &Url) -> broadcast::Receiver<String> {
+        self.subscribed_uris.write().unwrap().insert(uri.to_string());
         self.sender.subscribe()
     }
 
     /// Unsubscribe from updates for a resource
-    pub fn unsubscribe(&self, uri: &str) {
-        self.subscribed_uris.write().unwrap().remove(uri);
+    pub fn unsubscribe(&self, uri: &Url) {
+        self.subscribed_uris.write().unwrap().remove(&uri.to_string());
     }
 
     /// Send an update notification for a resource
-    pub fn notify_update(&self, uri: &str) {
-        if self.subscribed_uris.read().unwrap().contains(uri) {
+    pub fn notify_update(&self, uri: &Url) {
+        if self.subscribed_uris.read().unwrap().contains(&uri.to_string()) {
             let _ = self.sender.send(uri.to_string());
         }
     }
@@ -117,30 +120,30 @@ impl ResourceTemplate {
 
 /// A callback that can list resources matching a template
 pub trait ListResourcesCallback: Send + Sync {
-    fn call(&self) -> Pin<Box<dyn Future<Output = ListResourcesResult> + Send>>;
+    fn call(&self) -> Pin<Box<dyn Future<Output = ListResourcesResult> + Send + 'static>>;
 }
 
-struct ListResourcesCallbackFn(
-    Box<dyn Fn() -> Pin<Box<dyn Future<Output = ListResourcesResult> + Send>> + Send + Sync>,
+pub struct ListResourcesCallbackFn(
+    Box<dyn Fn() -> Pin<Box<dyn Future<Output = ListResourcesResult> + Send + 'static>> + Send + Sync>,
 );
 
 impl ListResourcesCallback for ListResourcesCallbackFn {
-    fn call(&self) -> Pin<Box<dyn Future<Output = ListResourcesResult> + Send>> {
+    fn call(&self) -> Pin<Box<dyn Future<Output = ListResourcesResult> + Send + 'static>> {
         (self.0)()
     }
 }
 
 /// A callback that can read a resource
 pub trait ReadResourceCallback: Send + Sync {
-    fn call(&self, uri: &Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send>>;
+    fn call(&self, uri: &Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send + 'static>>;
 }
 
-struct ReadResourceCallbackFn(
-    Box<dyn Fn(&Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send>> + Send + Sync>,
+pub struct ReadResourceCallbackFn(
+    pub Box<dyn Fn(&Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send + 'static>> + Send + Sync>,
 );
 
 impl ReadResourceCallback for ReadResourceCallbackFn {
-    fn call(&self, uri: &Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send>> {
+    fn call(&self, uri: &Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send + 'static>> {
         (self.0)(uri)
     }
 }
@@ -148,12 +151,16 @@ impl ReadResourceCallback for ReadResourceCallbackFn {
 /// A registered resource with metadata and callbacks
 pub(crate) struct RegisteredResource {
     /// The resource metadata
+    #[allow(dead_code)]
     pub metadata: Resource,
     /// The callback to read the resource
+    #[allow(dead_code)]
     pub read_callback: Arc<dyn ReadResourceCallback>,
     /// Channel for resource update notifications
+    #[allow(dead_code)]
     pub update_channel: ResourceUpdateChannel,
     /// Whether this resource supports subscriptions
+    #[allow(dead_code)]
     pub supports_subscriptions: bool,
 }
 
@@ -161,7 +168,7 @@ impl RegisteredResource {
     /// Create a new registered resource
     pub fn new(
         metadata: Resource,
-        read_callback: impl Fn(&Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send>> + Send + Sync + 'static,
+        read_callback: impl Fn(&Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send + 'static>> + Send + Sync + 'static,
         supports_subscriptions: bool,
     ) -> Self {
         Self {
@@ -173,15 +180,17 @@ impl RegisteredResource {
     }
 
     /// Subscribe to updates for this resource
+    #[allow(dead_code)]
     pub fn subscribe(&self) -> Option<broadcast::Receiver<String>> {
         if self.supports_subscriptions {
-            Some(self.update_channel.subscribe(self.metadata.uri.clone()))
+            Some(self.update_channel.subscribe(&self.metadata.uri))
         } else {
             None
         }
     }
 
     /// Unsubscribe from updates for this resource
+    #[allow(dead_code)]
     pub fn unsubscribe(&self) {
         if self.supports_subscriptions {
             self.update_channel.unsubscribe(&self.metadata.uri);
@@ -189,6 +198,7 @@ impl RegisteredResource {
     }
 
     /// Notify subscribers that this resource has been updated
+    #[allow(dead_code)]
     pub fn notify_update(&self) {
         if self.supports_subscriptions {
             self.update_channel.notify_update(&self.metadata.uri);
@@ -199,10 +209,13 @@ impl RegisteredResource {
 /// A registered resource template with metadata and callbacks
 pub(crate) struct RegisteredResourceTemplate {
     /// The resource template
+    #[allow(dead_code)]
     pub template: ResourceTemplate,
     /// The resource metadata
+    #[allow(dead_code)]
     pub metadata: Resource,
     /// The callback to read resources matching the template
+    #[allow(dead_code)]
     pub read_callback: Arc<dyn ReadResourceCallback>,
 }
 
@@ -214,10 +227,13 @@ mod tests {
     #[tokio::test]
     async fn test_resource_template() {
         let template = ResourceTemplate::new("file://{path}")
-            .with_list(|| async { ListResourcesResult { resources: vec![] } })
+            .with_list(|| async { vec![] })
             .with_completion(
                 "path",
-                CompletableString::new(|input| async move { vec![format!("{}/file.txt", input)] }),
+                CompletableString::new(|input: &str| {
+                    let input = input.to_string();
+                    async move { vec![format!("{}/file.txt", input)] }
+                }),
             );
 
         assert_eq!(template.uri_template(), "file://{path}");

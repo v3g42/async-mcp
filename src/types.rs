@@ -29,6 +29,8 @@ pub struct InitializeResponse {
     pub protocol_version: String,
     pub capabilities: ServerCapabilities,
     pub server_info: Implementation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -36,11 +38,11 @@ pub struct InitializeResponse {
 #[serde(default)]
 pub struct ServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<serde_json::Value>,
+    pub tools: Option<ToolCapabilities>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub logging: Option<serde_json::Value>,
+    pub logging: Option<LoggingCapabilities>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompts: Option<PromptCapabilities>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,6 +51,31 @@ pub struct ServerCapabilities {
     pub progress: Option<ProgressCapabilities>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completion: Option<CompletionCapabilities>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sampling: Option<SamplingCapabilities>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub roots: Option<RootCapabilities>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct ToolCapabilities {
+    pub list_changed: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct LoggingCapabilities {
+    pub window: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct SamplingCapabilities {
+    pub list_changed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -114,7 +141,7 @@ pub struct ResourceCapabilities {
 #[serde(default)]
 pub struct ClientCapabilities {
     pub experimental: Option<serde_json::Value>,
-    pub sampling: Option<serde_json::Value>,
+    pub sampling: Option<SamplingCapabilities>,
     pub roots: Option<RootCapabilities>,
 }
 
@@ -133,6 +160,7 @@ pub struct Tool {
     pub description: Option<String>,
     pub input_schema: serde_json::Value,
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallToolRequest {
@@ -146,7 +174,7 @@ pub struct CallToolRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallToolResponse {
-    pub content: Vec<ToolResponseContent>,
+    pub content: Vec<Content>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
@@ -155,7 +183,7 @@ pub struct CallToolResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
-pub enum ToolResponseContent {
+pub enum Content {
     #[serde(rename = "text")]
     Text { text: String },
     #[serde(rename = "image")]
@@ -170,6 +198,10 @@ pub struct ResourceContents {
     pub uri: Url,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blob: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -196,6 +228,7 @@ pub struct ToolsListResponse {
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
 }
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PromptsListResponse {
@@ -250,8 +283,8 @@ pub struct Resource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
     // SDK error codes
-    ConnectionClosed = -1,
-    RequestTimeout = -2,
+    ConnectionClosed = -32000,
+    RequestTimeout = -32001,
 
     // Standard JSON-RPC error codes
     ParseError = -32700,
@@ -259,6 +292,23 @@ pub enum ErrorCode {
     MethodNotFound = -32601,
     InvalidParams = -32602,
     InternalError = -32603,
+}
+
+/// Message content types shared between prompts and tool responses
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum MessageContent {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image")]
+    Image { data: String, mime_type: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptMessage {
+    pub role: String,
+    pub content: MessageContent,
 }
 
 #[cfg(test)]

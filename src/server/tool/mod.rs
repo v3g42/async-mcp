@@ -5,10 +5,10 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::types::{CallToolResult, Tool, ToolResponseContent};
+use crate::types::{CallToolResponse, Tool, Content};
 
 /// A registered tool with metadata and callbacks
-pub(crate) struct RegisteredTool {
+pub struct RegisteredTool {
     /// The tool metadata
     pub metadata: Tool,
     /// The callback to execute the tool
@@ -20,18 +20,18 @@ pub trait ToolCallback: Send + Sync {
     fn call(
         &self,
         args: Option<Value>,
-    ) -> Pin<Box<dyn Future<Output = CallToolResult> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = CallToolResponse> + Send>>;
 }
 
 struct ToolCallbackFn(
-    Box<dyn Fn(Option<Value>) -> Pin<Box<dyn Future<Output = CallToolResult> + Send>> + Send + Sync>,
+    Box<dyn Fn(Option<Value>) -> Pin<Box<dyn Future<Output = CallToolResponse> + Send>> + Send + Sync>,
 );
 
 impl ToolCallback for ToolCallbackFn {
     fn call(
         &self,
         args: Option<Value>,
-    ) -> Pin<Box<dyn Future<Output = CallToolResult> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = CallToolResponse> + Send>> {
         (self.0)(args)
     }
 }
@@ -65,11 +65,22 @@ impl ToolBuilder {
         self
     }
 
+    #[allow(dead_code)]
+    fn error_response(error: impl ToString) -> CallToolResponse {
+        CallToolResponse {
+            content: vec![Content::Text {
+                text: format!("Invalid arguments: {}", error.to_string()),
+            }],
+            is_error: Some(true),
+            meta: None,
+        }
+    }
+
     /// Build the tool with the given execution callback
     pub fn build<F, Fut>(self, callback: F) -> (Tool, RegisteredTool)
     where
         F: Fn(Option<Value>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = CallToolResult> + Send + 'static,
+        Fut: Future<Output = CallToolResponse> + Send + 'static,
     {
         let metadata = Tool {
             name: self.name.clone(),
@@ -92,44 +103,31 @@ impl ToolBuilder {
     }
 
     /// Build the tool with a typed execution callback
-    pub fn build_typed<T, F, Fut>(self, callback: F) -> (Tool, RegisteredTool)
+    #[allow(dead_code)]
+    pub(crate) fn build_typed<T, F>(self, callback: F) -> (Tool, RegisteredTool)
     where
-        T: for<'de> Deserialize<'de> + Send + 'static,
-        F: Fn(T) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = CallToolResult> + Send + 'static,
+        T: for<'de> Deserialize<'de> + Send + 'static, 
+        F: Fn(T) -> Pin<Box<dyn Future<Output = CallToolResponse> + Send>> + Send + Sync + 'static, 
     {
+        let callback = Arc::new(callback);
         self.build(move |args| {
-            let args = match args {
-                Some(args) => match serde_json::from_value(args) {
-                    Ok(args) => args,
-                    Err(e) => {
-                        return Box::pin(async move {
-                            CallToolResult {
-                                content: vec![ToolResponseContent::Text {
-                                    text: format!("Invalid arguments: {}", e),
-                                }],
-                                is_error: Some(true),
-                                meta: None,
-                            }
-                        })
+            let callback = Arc::clone(&callback);
+            Box::pin(async move {
+                let args_result: Result<T, _> = match args {
+                    Some(args) => {
+                        serde_json::from_value(args)
+                            .map_err(|e| Self::error_response(e))
+                    },
+                    None => {
+                        serde_json::from_value(serde_json::json!({}))
+                            .map_err(|e| Self::error_response(e))
                     }
-                },
-                None => match serde_json::from_value(serde_json::json!({})) {
-                    Ok(args) => args,
-                    Err(e) => {
-                        return Box::pin(async move {
-                            CallToolResult {
-                                content: vec![ToolResponseContent::Text {
-                                    text: format!("Invalid arguments: {}", e),
-                                }],
-                                is_error: Some(true),
-                                meta: None,
-                            }
-                        })
-                    }
-                },
-            };
-            Box::pin(callback(args))
+                };
+                match args_result {
+                    Ok(args) => callback(args).await,
+                    Err(error_response) => error_response,
+                }
+            })
         })
     }
 }
@@ -156,14 +154,16 @@ mod tests {
                     }
                 }
             }))
-            .build_typed(|args: TestArgs| async move {
-                CallToolResult {
-                    content: vec![ToolResponseContent::Text {
-                        text: args.message,
-                    }],
-                    is_error: None,
-                    meta: None,
-                }
+            .build_typed(|args: TestArgs| {
+                Box::pin(async move {
+                    CallToolResponse {
+                        content: vec![Content::Text {
+                            text: args.message,
+                        }],
+                        is_error: None,
+                        meta: None,
+                    }
+                })
             });
 
         assert_eq!(metadata.name, "test");
@@ -176,7 +176,7 @@ mod tests {
             })))
             .await;
 
-        if let ToolResponseContent::Text { text } = &result.content[0] {
+        if let Content::Text { text } = &result.content[0] {
             assert_eq!(text, "Hello");
         } else {
             panic!("Expected text response");

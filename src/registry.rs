@@ -9,9 +9,6 @@ pub struct Tools {
 }
 
 impl Tools {
-    pub(crate) fn new(map: HashMap<String, ToolHandler>) -> Self {
-        Self { tool_handlers: map }
-    }
 
     pub fn get_tool(&self, name: &str) -> Option<Tool> {
         self.tool_handlers

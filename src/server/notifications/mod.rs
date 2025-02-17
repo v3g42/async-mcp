@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
+use async_trait::async_trait;
 use std::fmt;
+use crate::server::error::ServerError;
 
 /// A notification message
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,16 +92,20 @@ pub struct ResourceUpdatedParams {
     pub uri: String,
 }
 
+type Result<T> = std::result::Result<T, ServerError>;
+
 /// A notification sender for sending notifications to clients
+#[async_trait]
 pub trait NotificationSender: Send + Sync {
     /// Send a notification
-    fn send(&self, notification: Notification) -> anyhow::Result<()>;
+    async fn send(&self, notification: Notification) -> Result<()>;
 }
 
 /// A notification handler for receiving notifications
+#[async_trait]
 pub trait NotificationHandler: Send + Sync {
     /// Handle a notification
-    fn handle(&self, notification: Notification) -> anyhow::Result<()>;
+    async fn handle(&self, notification: Notification) -> Result<()>;
 }
 
 #[cfg(test)]

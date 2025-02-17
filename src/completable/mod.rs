@@ -1,12 +1,13 @@
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::fmt::Debug;
 
 /// A trait for types that can provide completion suggestions.
 /// Similar to the TypeScript SDK's Completable type.
 pub trait Completable {
     /// The input type for completion suggestions
-    type Input;
+    type Input: ?Sized + Debug;
     /// The output type for completion suggestions
     type Output;
 
@@ -29,7 +30,8 @@ impl CompletableString {
     {
         Self {
             complete_fn: Arc::new(move |input| {
-                Box::pin(complete_fn(input).into_future())
+                let input = input.to_string();
+                Box::pin(complete_fn(&input).into_future())
             }),
         }
     }
@@ -49,21 +51,24 @@ pub struct FixedCompletions<T> {
     values: Vec<T>,
 }
 
-impl<T: Clone + Send + 'static> FixedCompletions<T> {
+impl<T: Clone + Send + Debug + 'static> FixedCompletions<T> {
     /// Create a new FixedCompletions with the given values
     pub fn new(values: Vec<T>) -> Self {
         Self { values }
     }
 }
 
-impl<T: Clone + Send + 'static> Completable for FixedCompletions<T> {
+impl<T: Clone + Send + Debug + 'static> Completable for FixedCompletions<T> {
     type Input = str;
     type Output = T;
-
+    
     fn complete(&self, value: &Self::Input) -> Pin<Box<dyn Future<Output = Vec<Self::Output>> + Send>> {
         let values = self.values.clone();
+        let value = value.to_string();
+        
         Box::pin(async move {
-            values.into_iter()
+            values
+                .into_iter()
                 .filter(|v| format!("{:?}", v).to_lowercase().contains(&value.to_lowercase()))
                 .collect()
         })
@@ -76,8 +81,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_completable_string() {
-        let completable = CompletableString::new(|input: &str| async move {
-            vec![format!("{}1", input), format!("{}2", input)]
+        let completable = CompletableString::new(|input: &str| {
+            let input = input.to_string();
+            async move {
+                vec![
+                    format!("{}1", input),
+                    format!("{}2", input)
+                ]
+            }
         });
 
         let suggestions = completable.complete("test").await;
@@ -88,6 +99,6 @@ mod tests {
     async fn test_fixed_completions() {
         let completions = FixedCompletions::new(vec!["apple", "banana", "cherry"]);
         let suggestions = completions.complete("a").await;
-        assert_eq!(suggestions, vec!["apple"]);
+        assert_eq!(suggestions, vec!["apple", "banana"]);
     }
 }

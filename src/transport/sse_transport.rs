@@ -3,7 +3,8 @@ use crate::sse::middleware::{AuthConfig, Claims};
 use super::{Message, Transport};
 
 use actix_web::web::Bytes;
-use anyhow::Result;
+use super::Result;
+use super::error::{TransportError, TransportErrorCode};
 use async_trait::async_trait;
 use futures::StreamExt;
 use jsonwebtoken::{encode, EncodingKey, Header};
@@ -34,7 +35,8 @@ impl ServerSseTransport {
     }
 
     pub async fn send_message(&self, message: Message) -> Result<()> {
-        self.message_tx.send(message).await?;
+        self.message_tx.send(message).await.map_err(|e| 
+            TransportError::new(TransportErrorCode::MessageSendFailed, format!("Failed to send message: {}", e)))?;
         Ok(())
     }
 
@@ -95,7 +97,8 @@ impl Transport for ServerSseTransport {
     async fn send(&self, message: &Message) -> Result<()> {
         let formatted = Self::format_sse_message(message)?;
         debug!("Sending chunked SSE message: {}", formatted);
-        self.sse_tx.send(message.clone())?;
+        self.sse_tx.send(message.clone()).map_err(|e| 
+            TransportError::new(TransportErrorCode::MessageSendFailed, format!("Failed to broadcast message: {}", e)))?;
         Ok(())
     }
 
@@ -137,7 +140,7 @@ impl ClientSseTransport {
         let auth_config = self
             .auth_config
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Auth config not set"))?;
+            .ok_or_else(|| TransportError::new(TransportErrorCode::AuthenticationFailed, "Auth config not set"))?;
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as usize;
         let claims = Claims {
@@ -324,7 +327,7 @@ impl Transport for ClientSseTransport {
             .lock()
             .await
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No session ID available"))?
+            .ok_or_else(|| TransportError::new(TransportErrorCode::SessionNotFound, "No session ID available"))?
             .clone();
 
         let request = self
@@ -341,8 +344,9 @@ impl Transport for ClientSseTransport {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await?;
-            return Err(anyhow::anyhow!(
-                "Failed to send message, status: {status}, body: {text}",
+            return Err(TransportError::new(
+                TransportErrorCode::MessageSendFailed,
+                format!("Failed to send message, status: {status}, body: {text}")
             ));
         }
 
@@ -388,11 +392,12 @@ impl Transport for ClientSseTransport {
                 match first_chunk {
                     Ok(bytes) => Self::handle_sse_chunk(bytes, &tx, &session_id, &buffer).await?,
                     Err(e) => {
-                        return Err(anyhow::anyhow!("Failed to get initial SSE message: {}", e))
+                        return Err(TransportError::new(TransportErrorCode::SseConnectionFailed, format!("Failed to get initial SSE message: {}", e)))
                     }
                 }
             } else {
-                return Err(anyhow::anyhow!(
+                return Err(TransportError::new(
+                    TransportErrorCode::SseConnectionFailed,
                     "SSE connection closed before receiving initial message"
                 ));
             }
@@ -406,7 +411,7 @@ impl Transport for ClientSseTransport {
                 }
             }
 
-            Ok::<_, anyhow::Error>(())
+            Ok::<_, TransportError>(())
         });
 
         // Wait for the session ID to be set
@@ -420,7 +425,7 @@ impl Transport for ClientSseTransport {
         }
 
         handle.abort();
-        Err(anyhow::anyhow!("Timeout waiting for initial SSE message"))
+        Err(TransportError::new(TransportErrorCode::ConnectionTimeout, "Timeout waiting for initial SSE message"))
     }
 
     async fn close(&self) -> Result<()> {

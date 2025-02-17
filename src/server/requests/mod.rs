@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::server::notifications::LoggingLevel;
+use crate::server::error::ServerError;
 use crate::types::{Implementation, ServerCapabilities};
 
 /// A request message
@@ -61,10 +62,12 @@ pub struct CancelParams {
     pub reason: Option<String>,
 }
 
+type Result<T> = std::result::Result<T, ServerError>;
+
 /// A request handler for handling requests
 pub trait RequestHandler: Send + Sync {
     /// Handle a request
-    fn handle(&self, request: Request) -> anyhow::Result<serde_json::Value>;
+    fn handle(&self, request: Request) -> Result<serde_json::Value>;
 }
 
 #[cfg(test)]

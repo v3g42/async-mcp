@@ -1,13 +1,3 @@
-[workspace]
-members = [
-  ".",
-  "examples/client",
-  "examples/file_system",
-  "examples/knowledge_graph_memory",
-  "examples/pingpong",
-]
-default-members = ["examples/file_system", "examples/pingpong"]
-# Your existing package configuration stays here
 [package]
 name = "async-mcp"
 version = "0.0.6"
@@ -22,10 +12,11 @@ keywords = ["async", "mcp", "protocol", "Anthropic"]
 categories = ["asynchronous", "network-programming"]
 readme = "README.md"
 [dependencies]
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.0", features = ["full", "test-util"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
+thiserror = "1.0"
 async-trait = "0.1"
 url = { version = "2.5", features = ["serde"] }
 tracing = "0.1"
@@ -40,4 +31,9 @@ tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
 async-openai = { version = "0.19.0", features = ["native-tls"] }
 
 [dev-dependencies]
+criterion = { version = "0.3", features = ["html_reports"] }
 tracing-subscriber = "0.3"
+
+[[bench]]
+name = "benchmarks"
+harness = false
