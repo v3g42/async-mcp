@@ -1,15 +1,19 @@
 use actix_web::middleware::Logger;
 use actix_web::web::Payload;
 use actix_web::web::Query;
-use actix_web::{web, App, HttpResponse, HttpServer};
+use actix_web::{web, App, HttpResponse, HttpServer, Either, Responder};
+use actix_cors::Cors;
+use rustls::{Certificate, PrivateKey, ServerConfig as RustlsServerConfig};
+use rustls_pemfile::{certs, pkcs8_private_keys};
 use anyhow::Result;
-use futures::StreamExt;
+
 use uuid::Uuid;
 
 use crate::server::Server;
 use crate::sse::middleware::{AuthConfig, JwtAuth};
 use crate::transport::ServerHttpTransport;
-use crate::transport::{handle_ws_connection, Message, ServerSseTransport, ServerWsTransport};
+use crate::transport::{handle_ws_connection, Message, ServerWsTransport};
+use crate::transport::ServerSseTransport;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -31,6 +35,36 @@ pub struct MessageQuery {
 }
 
 #[derive(Clone)]
+pub struct ServerConfig {
+    pub port: u16,
+    pub cors: Option<CorsConfig>,
+    pub tls: Option<TlsConfig>,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            port: 8080,
+            cors: None,
+            tls: None,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct CorsConfig {
+    pub allowed_origin: String,
+    pub allow_credentials: bool,
+    pub max_age: Option<usize>,
+}
+
+#[derive(Clone)]
+pub struct TlsConfig {
+    pub cert_path: String,
+    pub key_path: String,
+}
+
+#[derive(Clone)]
 pub struct SessionState {
     sessions: Arc<Mutex<HashMap<String, ServerHttpTransport>>>,
     port: u16,
@@ -46,7 +80,7 @@ pub struct SessionState {
 
 /// Run a server instance with the specified transport
 pub async fn run_http_server<F, Fut>(
-    port: u16,
+    config: ServerConfig,
     jwt_secret: Option<String>,
     build_server: F,
 ) -> Result<()>
@@ -54,9 +88,10 @@ where
     F: Fn(ServerHttpTransport) -> Fut + Send + Sync + 'static,
     Fut: futures::Future<Output = Result<Server>> + Send + 'static,
 {
-    info!("Starting server on http://127.0.0.1:{}", port);
-    info!("WebSocket endpoint: ws://127.0.0.1:{}/ws", port);
-    info!("SSE endpoint: http://127.0.0.1:{}/sse", port);
+    let protocol = if config.tls.is_some() { "https" } else { "http" };
+    info!("Starting server on {}://127.0.0.1:{}", protocol, config.port);
+    info!("WebSocket endpoint: {}://127.0.0.1:{}/ws", protocol.replace("http", "ws"), config.port);
+    info!("SSE endpoint: {}://127.0.0.1:{}/sse", protocol, config.port);
 
     let sessions = Arc::new(Mutex::new(HashMap::new()));
 
@@ -65,9 +100,63 @@ where
         Arc::new(move |t| Box::pin(build_server(t)) as futures::future::BoxFuture<_>);
 
     let auth_config = jwt_secret.map(|jwt_secret| AuthConfig { jwt_secret });
-    let http_server = http_server(port, sessions, auth_config, build_server);
+    // Configure and run the server
+    let mut server = HttpServer::new(move || {
+        let cors = if let Some(cors_config) = &config.cors {
+            Cors::default()
+                .allowed_origin(&cors_config.allowed_origin)
+                .allow_any_method()
+                .allow_any_header()
+                .supports_credentials()
+                .max_age(cors_config.max_age.unwrap_or(3600))
+        } else {
+            Cors::default()
+        };
 
-    http_server.await?;
+        App::new()
+            .wrap(Logger::default())
+            .wrap(JwtAuth::new(auth_config.clone()))
+            .wrap(cors)
+            .app_data(web::Data::new(SessionState {
+                sessions: sessions.clone(),
+                build_server: build_server.clone(),
+                port: config.port,
+            }))
+            .route("/sse", web::get().to(sse_handler))
+            .route("/message", web::post().to(message_handler))
+            .route("/ws", web::get().to(ws_handler))
+    });
+
+    // Add TLS if configured
+    if let Some(tls_config) = &config.tls {
+        use std::fs::File;
+        use std::io::BufReader;
+        
+        // Load TLS keys
+        let cert_file = File::open(&tls_config.cert_path)?;
+        let key_file = File::open(&tls_config.key_path)?;
+        let cert_reader = &mut BufReader::new(cert_file);
+        let key_reader = &mut BufReader::new(key_file);
+
+        // Parse TLS keys
+        let cert_chain = certs(cert_reader)?.into_iter().map(Certificate).collect();
+        let mut keys = pkcs8_private_keys(key_reader)?;
+        if keys.is_empty() {
+            anyhow::bail!("No private keys found");
+        }
+
+        // Create TLS config
+        let tls_config = RustlsServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(cert_chain, PrivateKey(keys.remove(0)))?;
+
+        server = server.bind_rustls(("127.0.0.1", config.port), tls_config)?;
+    } else {
+        server = server.bind(("127.0.0.1", config.port))?;
+    }
+
+    server.run().await?;
     Ok(())
 }
 
@@ -109,7 +198,7 @@ pub async fn http_server(
 pub async fn sse_handler(
     req: actix_web::HttpRequest,
     session_state: web::Data<SessionState>,
-) -> HttpResponse {
+) -> impl Responder {
     let client_ip = req
         .peer_addr()
         .map(|addr| addr.ip().to_string())
@@ -120,55 +209,34 @@ pub async fn sse_handler(
     // Create new session
     let session_id = Uuid::new_v4().to_string();
 
-    // Create channel for SSE messages
-    let (sse_tx, sse_rx) = broadcast::channel(100);
-
-    // Create new transport for this session
-    let transport = ServerHttpTransport::Sse(ServerSseTransport::new(sse_tx.clone()));
+    // Create new SSE transport with responder
+    let (transport, responder) = ServerSseTransport::new_with_responder(100);
 
     // Store transport in sessions map
     session_state
         .sessions
         .lock()
         .unwrap()
-        .insert(session_id.clone(), transport.clone());
+        .insert(session_id.clone(), ServerHttpTransport::Sse(transport.clone()));
 
     info!(
         "SSE connection established for {} with session_id {}",
         client_ip, session_id
     );
+
+    // Send initial endpoint info
     let port = session_state.port;
-    // Create initial endpoint info event
-    let endpoint_info = format!(
-        "event: endpoint\ndata: http://127.0.0.1:{port}/message?sessionId={session_id}\n\n",
-    );
+    let endpoint_info = format!("http://127.0.0.1:{port}/message?sessionId={session_id}");
+    if let Err(e) = transport.send_event("endpoint", endpoint_info).await {
+        error!("Error sending endpoint info: {}", e);
+        return Either::Left(HttpResponse::InternalServerError().finish());
+    }
 
-    let stream = futures::stream::once(async move {
-        Ok::<_, std::convert::Infallible>(web::Bytes::from(endpoint_info))
-    })
-    .chain(futures::stream::unfold(sse_rx, move |mut rx| {
-        let client_ip = client_ip.clone();
-        async move {
-            match rx.recv().await {
-                Ok(msg) => {
-                    debug!("Sending SSE message to {}: {:?}", client_ip, msg);
-                    let json = serde_json::to_string(&msg).unwrap();
-                    let sse_data = format!("data: {}\n\n", json);
-                    Some((
-                        Ok::<_, std::convert::Infallible>(web::Bytes::from(sse_data)),
-                        rx,
-                    ))
-                }
-                _ => None,
-            }
-        }
-    }));
-
-    // Create and start server instance for this session
-    let transport_clone = transport.clone();
+    // Create and spawn the server instance
+    let transport_for_server = transport.clone();
     let build_server = session_state.build_server.clone();
     tokio::spawn(async move {
-        match build_server(transport_clone).await {
+        match build_server(ServerHttpTransport::Sse(transport_for_server)).await {
             Ok(server) => {
                 if let Err(e) = server.listen().await {
                     error!("Server error: {:?}", e);
@@ -180,10 +248,8 @@ pub async fn sse_handler(
         }
     });
 
-    HttpResponse::Ok()
-        .append_header(("X-Session-Id", session_id))
-        .content_type("text/event-stream")
-        .streaming(stream)
+    // Return the SSE responder wrapped in Either::Right
+    Either::Right(responder)
 }
 
 async fn message_handler(
@@ -192,8 +258,11 @@ async fn message_handler(
     session_state: web::Data<SessionState>,
 ) -> HttpResponse {
     if let Some(session_id) = &query.session_id {
-        let sessions = session_state.sessions.lock().unwrap();
-        if let Some(transport) = sessions.get(session_id) {
+        let transport = {
+            let sessions = session_state.sessions.lock().unwrap();
+            sessions.get(session_id).cloned()
+        };
+        if let Some(transport) = transport {
             match transport {
                 ServerHttpTransport::Sse(sse) => match sse.send_message(message.into_inner()).await
                 {

@@ -28,10 +28,52 @@ This is an implementation of the [Model Context Protocol](https://github.com/mod
 ## Features
 
 ### Supported Transports
-- Server-Sent Events (SSE)
-- Standard IO (Stdio) 
-- In-Memory Channel
-- Websockets
+
+#### HTTP-Based Transports
+- **Server-Sent Events (SSE)**: Robust unidirectional server-to-client communication with automatic keep-alive
+- **WebSocket**: Full-duplex communication with comprehensive error handling and connection management
+
+#### Other Transports
+- **Standard IO (Stdio)**: For command-line and process-based communication
+- **In-Memory Channel**: Efficient inter-process communication using Tokio channels
+
+## Transport Implementation Details
+
+### HTTP Transport Layer
+The HTTP transport layer provides a unified interface for both SSE and WebSocket connections:
+
+#### Server-Side Events (SSE)
+- Efficient unidirectional communication from server to client
+- Automatic keep-alive with configurable intervals (default: 15 seconds)
+- Comprehensive event types support (data, named events, comments)
+- JSON serialization for structured messages
+- Built on `actix-web-lab` for robust server implementation
+
+#### WebSocket Transport
+- Full-duplex communication with message broadcasting
+- Header customization support for authentication and session management
+- Robust error handling with specific error codes and messages
+- Connection lifecycle management (open, close, reconnect)
+- Built on `tokio-tungstenite` for async WebSocket support
+
+#### Common Features
+- Type-safe message handling using Rust's type system
+- Comprehensive error handling with custom error types
+- Async/await support throughout the transport layer
+- Clean separation between transport types via enum variants
+
+#### Security Features
+- **TLS Support**
+  - Secure communication with configurable TLS certificates
+  - Custom certificate and key path configuration
+  - Optional TLS for development environments
+
+- **CORS Configuration**
+  - Fine-grained Cross-Origin Resource Sharing control
+  - Configurable allowed origins and credentials
+  - Customizable preflight cache duration
+  - Header allowlist support
+  - Default secure CORS policy
 
 ## Usage Examples
 
@@ -85,9 +127,25 @@ let server = Server::builder(StdioTransport)
     .build();
 ```
 
-#### Run Http Server supporting both SSE and WS 
+#### Run HTTP Server with Advanced Configuration
 ```rust
-run_http_server(3004, None, |transport| async move {
+// Server configuration with TLS and CORS
+let config = ServerConfig {
+    port: 3004,
+    cors: Some(CorsConfig {
+        allowed_origin: "https://example.com".to_string(),
+        allow_credentials: true,
+        max_age: Some(3600),
+    }),
+    tls: Some(TlsConfig {
+        cert_path: "path/to/cert.pem".to_string(),
+        key_path: "path/to/key.pem".to_string(),
+    }),
+    ..Default::default()
+};
+
+// Run server with configuration
+run_http_server(config, None, |transport| async move {
     let server = build_server(transport);
     Ok(server)
 })
@@ -96,9 +154,23 @@ run_http_server(3004, None, |transport| async move {
 
 Local Endpoints
 ```
+// With TLS enabled:
+WebSocket endpoint: wss://127.0.0.1:3004/ws
+SSE endpoint: https://127.0.0.1:3004/sse
+
+// Without TLS:
 WebSocket endpoint: ws://127.0.0.1:3004/ws
 SSE endpoint: http://127.0.0.1:3004/sse
 ```
+
+##### Security Features
+- **TLS Support**: Secure communication with TLS certificate support
+- **CORS Configuration**: Fine-grained control over Cross-Origin Resource Sharing
+  - Origin restrictions
+  - Credential handling
+  - Preflight caching
+  - Header allowlists
+- **JWT Authentication**: Optional JWT-based authentication for endpoints
 
 ### Client Implementation
 

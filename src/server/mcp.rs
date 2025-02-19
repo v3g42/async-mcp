@@ -168,7 +168,7 @@ impl McpServer {
         let name = name.into();
 
         let metadata = metadata.unwrap_or_else(|| Resource {
-            uri: Url::parse(&template.uri_template()).unwrap_or_else(|e| {
+            uri: Url::parse(template.uri_template()).unwrap_or_else(|e| {
                 eprintln!("Warning: Invalid URI template: {}", e);
                 Url::parse("about:invalid").unwrap()
             }),

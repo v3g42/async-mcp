@@ -12,6 +12,17 @@ use tokio::sync::broadcast;
 pub type ListResourcesResult = Vec<Resource>;
 pub type ReadResourceResult = Vec<ResourceContents>;
 
+// Type aliases for complex Future types
+type ListResourcesFuture = Pin<Box<dyn Future<Output = ListResourcesResult> + Send + 'static>>;
+type ReadResourceFuture = Pin<Box<dyn Future<Output = ReadResourceResult> + Send + 'static>>;
+
+// Type aliases for callback functions
+type ListResourcesFn = Box<dyn Fn() -> ListResourcesFuture + Send + Sync>;
+type ReadResourceFn = Box<dyn Fn(&Url) -> ReadResourceFuture + Send + Sync>;
+type ArcReadResourceCallback = Arc<dyn ReadResourceCallback>;
+
+
+
 /// A channel for resource update notifications
 #[derive(Clone)]
 pub struct ResourceUpdateChannel {
@@ -120,30 +131,26 @@ impl ResourceTemplate {
 
 /// A callback that can list resources matching a template
 pub trait ListResourcesCallback: Send + Sync {
-    fn call(&self) -> Pin<Box<dyn Future<Output = ListResourcesResult> + Send + 'static>>;
+    fn call(&self) -> ListResourcesFuture;
 }
 
-pub struct ListResourcesCallbackFn(
-    Box<dyn Fn() -> Pin<Box<dyn Future<Output = ListResourcesResult> + Send + 'static>> + Send + Sync>,
-);
+pub struct ListResourcesCallbackFn(ListResourcesFn);
 
 impl ListResourcesCallback for ListResourcesCallbackFn {
-    fn call(&self) -> Pin<Box<dyn Future<Output = ListResourcesResult> + Send + 'static>> {
+    fn call(&self) -> ListResourcesFuture {
         (self.0)()
     }
 }
 
 /// A callback that can read a resource
 pub trait ReadResourceCallback: Send + Sync {
-    fn call(&self, uri: &Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send + 'static>>;
+    fn call(&self, uri: &Url) -> ReadResourceFuture;
 }
 
-pub struct ReadResourceCallbackFn(
-    pub Box<dyn Fn(&Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send + 'static>> + Send + Sync>,
-);
+pub struct ReadResourceCallbackFn(pub ReadResourceFn);
 
 impl ReadResourceCallback for ReadResourceCallbackFn {
-    fn call(&self, uri: &Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send + 'static>> {
+    fn call(&self, uri: &Url) -> ReadResourceFuture {
         (self.0)(uri)
     }
 }
@@ -168,7 +175,7 @@ impl RegisteredResource {
     /// Create a new registered resource
     pub fn new(
         metadata: Resource,
-        read_callback: impl Fn(&Url) -> Pin<Box<dyn Future<Output = ReadResourceResult> + Send + 'static>> + Send + Sync + 'static,
+        read_callback: impl Fn(&Url) -> ReadResourceFuture + Send + Sync + 'static,
         supports_subscriptions: bool,
     ) -> Self {
         Self {
@@ -216,7 +223,7 @@ pub(crate) struct RegisteredResourceTemplate {
     pub metadata: Resource,
     /// The callback to read resources matching the template
     #[allow(dead_code)]
-    pub read_callback: Arc<dyn ReadResourceCallback>,
+    pub read_callback: ArcReadResourceCallback,
 }
 
 #[cfg(test)]

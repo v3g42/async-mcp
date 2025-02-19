@@ -111,11 +111,15 @@ where
     }
 }
 
+// Type aliases for complex future and callback types
+type SamplingFuture = Pin<Box<dyn Future<Output = Result<SamplingResult>> + Send + 'static>>;
+type SamplingCallbackFunc = Arc<dyn Fn(SamplingRequest) -> SamplingFuture + Send + Sync>;
+
 /// A registered sampling handler
 pub(crate) struct RegisteredSampling {
     /// The callback to handle sampling requests
     #[allow(dead_code)]
-    pub callback: Arc<dyn Fn(SamplingRequest) -> Pin<Box<dyn Future<Output = Result<SamplingResult>> + Send + 'static>> + Send + Sync>,
+    pub callback: SamplingCallbackFunc,
 }
 
 #[cfg(test)]

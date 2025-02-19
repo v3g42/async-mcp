@@ -3,6 +3,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::fmt::Debug;
 
+// Type aliases for complex future types
+type CompletionFuture<T> = Pin<Box<dyn Future<Output = Vec<T>> + Send>>;
+type CompletionFn<T> = Arc<dyn Fn(&str) -> CompletionFuture<T> + Send + Sync>;
+
 /// A trait for types that can provide completion suggestions.
 /// Similar to the TypeScript SDK's Completable type.
 pub trait Completable {
@@ -12,12 +16,12 @@ pub trait Completable {
     type Output;
 
     /// Generate completion suggestions for the given input value
-    fn complete(&self, value: &Self::Input) -> Pin<Box<dyn Future<Output = Vec<Self::Output>> + Send>>;
+    fn complete(&self, value: &Self::Input) -> CompletionFuture<Self::Output>;
 }
 
 /// A completable string that uses a callback function to generate suggestions
 pub struct CompletableString {
-    complete_fn: Arc<dyn Fn(&str) -> Pin<Box<dyn Future<Output = Vec<String>> + Send>> + Send + Sync>,
+    complete_fn: CompletionFn<String>,
 }
 
 impl CompletableString {
@@ -41,7 +45,7 @@ impl Completable for CompletableString {
     type Input = str;
     type Output = String;
 
-    fn complete(&self, value: &Self::Input) -> Pin<Box<dyn Future<Output = Vec<Self::Output>> + Send>> {
+    fn complete(&self, value: &Self::Input) -> CompletionFuture<Self::Output> {
         (self.complete_fn)(value)
     }
 }
@@ -62,7 +66,7 @@ impl<T: Clone + Send + Debug + 'static> Completable for FixedCompletions<T> {
     type Input = str;
     type Output = T;
     
-    fn complete(&self, value: &Self::Input) -> Pin<Box<dyn Future<Output = Vec<Self::Output>> + Send>> {
+    fn complete(&self, value: &Self::Input) -> CompletionFuture<Self::Output> {
         let values = self.values.clone();
         let value = value.to_string();
         

@@ -19,12 +19,18 @@ pub enum TransportErrorCode {
     // Protocol errors
     ProtocolError = -1200,
     HandshakeFailed = -1201,
+    
+    // Transport operation errors
+    SendError = -1300,
+    OpenError = -1301,
+    CloseError = -1302,
+    ReceiveError = -1303,
     AuthenticationFailed = -1202,
 
     // Session errors
-    SessionExpired = -1300,
-    SessionInvalid = -1301,
-    SessionNotFound = -1302,
+    SessionExpired = -1310,
+    SessionInvalid = -1311,
+    SessionNotFound = -1312,
 
     // WebSocket specific
     WebSocketUpgradeFailed = -1400,
@@ -80,6 +86,10 @@ impl fmt::Display for TransportErrorCode {
             Self::InternalError => write!(f, "Internal error"),
             Self::Timeout => write!(f, "Operation timed out"),
             Self::InvalidState => write!(f, "Invalid state"),
+            Self::SendError => write!(f, "Send error"),
+            Self::OpenError => write!(f, "Open error"),
+            Self::CloseError => write!(f, "Close error"),
+            Self::ReceiveError => write!(f, "Receive error"),
         }
     }
 }
@@ -193,7 +203,8 @@ mod tests {
         assert_eq!(TransportErrorCode::ConnectionFailed as i32, -1000);
         assert_eq!(TransportErrorCode::MessageTooLarge as i32, -1100);
         assert_eq!(TransportErrorCode::ProtocolError as i32, -1200);
-        assert_eq!(TransportErrorCode::SessionExpired as i32, -1300);
+        assert_eq!(TransportErrorCode::SendError as i32, -1300);
+        assert_eq!(TransportErrorCode::SessionExpired as i32, -1310);
     }
 
     #[test]

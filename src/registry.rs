@@ -4,8 +4,11 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
+// Type alias for tool handler map
+type ToolHandlerMap = HashMap<String, ToolHandler>;
+
 pub struct Tools {
-    tool_handlers: HashMap<String, ToolHandler>,
+    tool_handlers: ToolHandlerMap,
 }
 
 impl Tools {
@@ -33,11 +36,12 @@ impl Tools {
     }
 }
 
+// Type aliases for complex future and handler types
+type ToolFuture = Pin<Box<dyn Future<Output = Result<CallToolResponse>> + Send>>;
+type ToolHandlerFn = Box<dyn Fn(CallToolRequest) -> ToolFuture + Send + Sync>;
+
+// Struct for storing tool handlers
 pub(crate) struct ToolHandler {
     pub tool: Tool,
-    pub f: Box<
-        dyn Fn(CallToolRequest) -> Pin<Box<dyn Future<Output = Result<CallToolResponse>> + Send>>
-            + Send
-            + Sync,
-    >,
+    pub f: ToolHandlerFn,
 }

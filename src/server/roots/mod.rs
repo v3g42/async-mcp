@@ -16,15 +16,17 @@ pub struct Root {
 
 /// A callback that can list roots
 pub trait RootsCallback: Send + Sync {
-    fn call(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Vec<Root>>> + Send>>;
+    fn call(&self) -> RootsFuture;
 }
 
-struct RootsCallbackFn(
-    Box<dyn Fn() -> Pin<Box<dyn Future<Output = anyhow::Result<Vec<Root>>> + Send>> + Send + Sync>,
-);
+// Type aliases for complex future and callback types
+type RootsFuture = Pin<Box<dyn Future<Output = anyhow::Result<Vec<Root>>> + Send>>;
+type RootsCallbackFunc = Box<dyn Fn() -> RootsFuture + Send + Sync>;
+
+struct RootsCallbackFn(RootsCallbackFunc);
 
 impl RootsCallback for RootsCallbackFn {
-    fn call(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Vec<Root>>> + Send>> {
+    fn call(&self) -> RootsFuture {
         (self.0)()
     }
 }
@@ -33,7 +35,7 @@ impl RootsCallback for RootsCallbackFn {
 pub(crate) struct RegisteredRoots {
     /// The callback to list roots
     #[allow(dead_code)]
-    pub list_callback: Arc<dyn RootsCallback>,
+    pub callback: Arc<dyn RootsCallback>,
     /// Whether the handler supports root change notifications
     #[allow(dead_code)]
     pub supports_change_notifications: bool,
@@ -42,14 +44,11 @@ pub(crate) struct RegisteredRoots {
 impl RegisteredRoots {
     /// Create a new roots handler with the given callback
     pub fn new(
-        list_callback: impl Fn() -> Pin<Box<dyn Future<Output = anyhow::Result<Vec<Root>>> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        list_callback: impl Fn() -> RootsFuture + Send + Sync + 'static,
         supports_change_notifications: bool,
     ) -> Self {
         Self {
-            list_callback: Arc::new(RootsCallbackFn(Box::new(list_callback))),
+            callback: Arc::new(RootsCallbackFn(Box::new(list_callback))),
             supports_change_notifications,
         }
     }
@@ -57,7 +56,7 @@ impl RegisteredRoots {
     /// List all available roots
     #[allow(dead_code)]
     pub async fn list_roots(&self) -> anyhow::Result<Vec<Root>> {
-        self.list_callback.call().await
+        self.callback.call().await
     }
 }
 

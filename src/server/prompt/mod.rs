@@ -26,7 +26,7 @@ impl std::fmt::Debug for RegisteredPrompt {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GetPromptResult {
     pub description: Option<String>,
     pub messages: Vec<PromptMessage>,
@@ -38,40 +38,25 @@ pub struct PromptMessage {
     pub content: MessageContent,
 }
 
-impl Default for GetPromptResult {
-    fn default() -> Self {
-        Self {
-            description: None,
-            messages: Vec::new(),
-        }
-    }
-}
-
 /// A callback that can execute a prompt
 pub trait PromptCallback: Send + Sync {
-    fn call(
-        &self,
-        args: Option<HashMap<String, String>>,
-    ) -> Pin<Box<dyn Future<Output = GetPromptResult> + Send>>;
+    fn call(&self, args: Option<HashMap<String, String>>) -> PromptFuture;
 }
 
 impl std::fmt::Debug for dyn PromptCallback {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "PromptCallback") }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PromptCallback")
+    }
 }
 
-struct PromptCallbackFn(
-    Box<
-        dyn Fn(Option<HashMap<String, String>>) -> Pin<Box<dyn Future<Output = GetPromptResult> + Send>>
-            + Send
-            + Sync,
-    >,
-);
+// Type aliases for complex future and callback types
+type PromptFuture = Pin<Box<dyn Future<Output = GetPromptResult> + Send>>;
+type PromptCallbackFunc = Box<dyn Fn(Option<HashMap<String, String>>) -> PromptFuture + Send + Sync>;
+
+struct PromptCallbackFn(PromptCallbackFunc);
 
 impl PromptCallback for PromptCallbackFn {
-    fn call(
-        &self,
-        args: Option<HashMap<String, String>>,
-    ) -> Pin<Box<dyn Future<Output = GetPromptResult> + Send>> {
+    fn call(&self, args: Option<HashMap<String, String>>) -> PromptFuture {
         (self.0)(args)
     }
 }
@@ -153,7 +138,7 @@ impl PromptBuilder {
         for arg in &self.arguments {
             if let Some(required) = arg.required {
                 if required && arg.name.is_empty() {
-                    return Err(format!("Required argument must have a name"));
+                    return Err("Required argument must have a name".to_string());
                 }
             } else {
                 return Err(format!("Argument '{}' must specify if it's required", arg.name));

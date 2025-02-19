@@ -1,164 +1,188 @@
-use async_mcp::completable::{Completable, CompletableString, FixedCompletions};
-use async_mcp::server::notifications::{Notification, CancelledParams, NotificationSender};
-use async_mcp::server::prompt::PromptBuilder;
-use async_mcp::server::Server;
-use async_mcp::types::{Implementation, ServerCapabilities};
-use async_mcp::transport::Transport;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use futures::executor::block_on;
-use serde_json;
-use std::sync::Arc;
-use tokio::time::sleep;
-use std::time::Duration;
-use async_trait::async_trait;
-use tokio::runtime::Runtime;
+//! Benchmarks for async-mcp
+//! 
+//! This module provides performance benchmarks for key components of the async-mcp crate.
+//! Benchmarks are organized into logical groups for better comparison and analysis.
 
+use async_mcp::{
+    completable::{Completable, CompletableString, FixedCompletions},
+    server::{
+        notifications::{CancelledParams, Notification, NotificationSender},
+        prompt::{GetPromptResult, PromptBuilder},
+        Server,
+    },
+    transport::{Message, Result as TransportResult, Transport},
+    types::{Implementation, ServerCapabilities},
+};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput};
+use std::time::Duration;
+use tokio::runtime::Runtime;
+use async_trait::async_trait;
+use serde_json;
+
+/// Helper to run async benchmarks consistently
+fn bench_async<F, Fut>(rt: &Runtime, f: F) -> Fut::Output
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future,
+{
+    rt.block_on(f())
+}
+
+// Zero-overhead mock transport for consistent benchmarking
+#[derive(Clone)]
 struct MockTransport;
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Transport for MockTransport {
-    async fn receive(&self) -> async_mcp::transport::Result<Option<async_mcp::transport::Message>> {
-        Ok(None)
-    }
-
-    async fn send(&self, _message: &async_mcp::transport::Message) -> async_mcp::transport::Result<()> {
-        Ok(())
-    }
-
-    async fn open(&self) -> async_mcp::transport::Result<()> {
-        Ok(())
-    }
-
-    async fn close(&self) -> async_mcp::transport::Result<()> {
-        Ok(())
-    }
+    async fn receive(&self) -> TransportResult<Option<Message>> { Ok(None) }
+    async fn send(&self, _: &Message) -> TransportResult<()> { Ok(()) }
+    async fn open(&self) -> TransportResult<()> { Ok(()) }
+    async fn close(&self) -> TransportResult<()> { Ok(()) }
 }
 
-fn bench_completable_string(c: &mut Criterion) {
-    let completable = CompletableString::new(|input: &str| {
-        let input = input.to_string();
-        async move {
-            vec![format!("{}1", input), format!("{}2", input)]
-        }
-    });
-
-    c.bench_function("completable_string", |b| {
-        b.iter(|| {
-            let _ = block_on(completable.complete(black_box("test")));
-        })
-    });
-}
-
-fn bench_fixed_completions(c: &mut Criterion) {
-    let completions = FixedCompletions::new(vec!["apple", "banana", "cherry"]);
-
-    c.bench_function("fixed_completions", |b| {
-        b.iter(|| {
-            let _ = block_on(completions.complete(black_box("a")));
-        })
-    });
-}
-
-fn bench_notification_serialization(c: &mut Criterion) {
-    let notification = Notification::Cancelled(CancelledParams {
-        request_id: "123".to_string(),
-        reason: Some("User cancelled".to_string()),
-    });
-
-    c.bench_function("notification_serialization", |b| {
-        b.iter(|| {
-            let _ = serde_json::to_string(black_box(&notification));
-        })
-    });
-}
-
-fn bench_prompt_builder(c: &mut Criterion) {
-    c.bench_function("prompt_builder", |b| {
-        b.iter(|| {
-            let _ = PromptBuilder::new("test")
-                .description("A test prompt")
-                .required_arg("arg1", Some("First argument"))
-                .optional_arg("arg2", None)
-                .build(|_args| async { 
-                    async_mcp::server::prompt::GetPromptResult::default()
-                });
-        })
-    });
-}
-
-fn bench_connection_setup(c: &mut Criterion) {
-    c.bench_function("connection_setup", |b| {
-        b.iter(|| {
-            let server = Server::new(Implementation {
-                name: "test".to_string(),
-                version: "0.1.0".to_string(),
-            });
-            block_on(server.connect(MockTransport))
-        })
-    });
-}
-
+// Zero-overhead mock notification sender
+#[derive(Clone)]
 struct MockNotificationSender;
 
-impl MockNotificationSender {
-    async fn send_notification(&self, _notification: Notification) -> Result<(), async_mcp::server::error::ServerError> {
-        // Simulate notification sending
-        sleep(Duration::from_micros(100)).await;
+#[async_trait]
+impl NotificationSender for MockNotificationSender {
+    async fn send(&self, _: Notification) -> Result<(), async_mcp::server::error::ServerError> {
         Ok(())
     }
 }
 
-struct AsyncNotificationSender(Arc<MockNotificationSender>);
+/// Benchmark completion-related functionality
+fn completions(c: &mut Criterion) {
+    let mut group = c.benchmark_group("completions");
+    group.throughput(Throughput::Elements(1));
+    group.warm_up_time(Duration::from_secs(1));
 
-#[async_trait]
-impl NotificationSender for AsyncNotificationSender {
-    async fn send(&self, notification: Notification) -> Result<(), async_mcp::server::error::ServerError> {
-        self.0.send_notification(notification).await
-    }
+    // Pre-allocate completable with static callback
+    let completable = CompletableString::new(|input: &str| {
+        let input = input.to_string();
+        async move { vec![format!("{input}1"), format!("{input}2")] }
+    });
+
+    let rt = Runtime::new().unwrap();
+    group.bench_function("string", |b| {
+        b.iter(|| bench_async(&rt, || completable.complete("test")))
+    });
+
+    // Pre-allocate fixed completions
+    let fixed = FixedCompletions::new(vec!["apple", "banana", "cherry"]);
+    group.bench_function("fixed", |b| {
+        b.iter(|| bench_async(&rt, || fixed.complete("a")))
+    });
+
+    group.finish();
 }
 
-fn bench_notification_sending(c: &mut Criterion) {
+/// Benchmark notification handling
+fn notifications(c: &mut Criterion) {
+    let mut group = c.benchmark_group("notifications");
+    group.throughput(Throughput::Elements(1));
+    group.warm_up_time(Duration::from_secs(1));
+    
+    // Pre-allocate server and runtime
     let rt = Runtime::new().unwrap();
-    
     let mut server = Server::new(Implementation {
-        name: "test".to_string(),
-        version: "0.1.0".to_string(),
+        name: "test".into(),
+        version: "0.1.0".into(),
     });
-    
-    let sender = AsyncNotificationSender(Arc::new(MockNotificationSender));
-    server.set_notification_sender(sender);
+    server.set_notification_sender(MockNotificationSender);
 
+    // Pre-allocate notification
     let notification = Notification::Initialized;
 
-    c.bench_function("notification_sending", |b| {
-        b.iter(|| {
-            rt.block_on(server.send_notification(black_box(notification.clone())))
-        })
+    group.bench_function("send", |b| {
+        b.iter_batched(
+            || notification.clone(),
+            |n| bench_async(&rt, || server.send_notification(n.clone())),
+            BatchSize::SmallInput,
+        )
     });
+
+    // Benchmark notification serialization
+    let cancelled = Notification::Cancelled(CancelledParams {
+        request_id: "123".into(),
+        reason: Some("User cancelled".into()),
+    });
+
+    group.bench_function("serialize", |b| {
+        b.iter(|| serde_json::to_string(black_box(&cancelled)))
+    });
+
+    group.finish();
 }
 
-fn bench_server_capabilities_registration(c: &mut Criterion) {
-    let mut server = Server::new(Implementation {
-        name: "test".to_string(),
-        version: "0.1.0".to_string(),
+/// Benchmark prompt building and handling
+fn prompt(c: &mut Criterion) {
+    let mut group = c.benchmark_group("prompt");
+    group.throughput(Throughput::Elements(1));
+    group.warm_up_time(Duration::from_secs(1));
+
+    // Pre-allocate strings and callback
+    let name = "test";
+    let desc = "A test prompt";
+    let arg1 = "arg1";
+    let arg1_desc = "First argument";
+    let arg2 = "arg2";
+
+    group.bench_function("builder", |b| {
+        b.iter(|| {
+            PromptBuilder::new(black_box(name))
+                .description(black_box(desc))
+                .required_arg(black_box(arg1), Some(black_box(arg1_desc)))
+                .optional_arg(black_box(arg2), None)
+                .build(|_| async { GetPromptResult::default() })
+        })
     });
 
+    group.finish();
+}
+
+/// Benchmark server operations
+fn server(c: &mut Criterion) {
+    let mut group = c.benchmark_group("server");
+    group.throughput(Throughput::Elements(1));
+    group.warm_up_time(Duration::from_secs(1));
+
+    // Pre-allocate implementation and transport
+    let impl_ = Implementation {
+        name: "test".into(),
+        version: "0.1.0".into(),
+    };
+    let transport = MockTransport;
+    let rt = Runtime::new().unwrap();
+
+    group.bench_function("connect", |b| {
+        b.iter_batched(
+            || (Server::new(impl_.clone()), transport.clone()),
+            |(server, t)| bench_async(&rt, || server.connect(t.clone())),
+            BatchSize::SmallInput,
+        )
+    });
+
+    // Pre-allocate server and capabilities
+    let mut server = Server::new(impl_);
     let capabilities = ServerCapabilities::default();
 
-    c.bench_function("server_capabilities_registration", |b| {
-        b.iter(|| {
-            server.register_capabilities(black_box(capabilities.clone()));
-        })
+    group.bench_function("capabilities", |b| {
+        b.iter_batched(
+            || capabilities.clone(),
+            |caps| server.register_capabilities(caps),
+            BatchSize::SmallInput,
+        )
     });
+
+    group.finish();
 }
 
-criterion_group!(benches, 
-    bench_completable_string,
-    bench_fixed_completions,
-    bench_notification_serialization,
-    bench_prompt_builder,
-    bench_connection_setup,
-    bench_notification_sending,
-    bench_server_capabilities_registration
+criterion_group!(
+    benches,
+    completions,
+    notifications,
+    prompt,
+    server
 );
 criterion_main!(benches);

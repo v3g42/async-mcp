@@ -30,12 +30,12 @@ impl<T: Transport> Client<T> {
         let response = self
             .request(
                 "initialize",
-                Some(serde_json::to_value(request).map_err(|e| TransportError::Json(e))?),
+                Some(serde_json::to_value(request).map_err(TransportError::Json)?),
                 RequestOptions::default(),
             )
             .await?;
         let response: InitializeResponse = serde_json::from_value(response)
-            .map_err(|e| TransportError::Json(e))?;
+            .map_err(TransportError::Json)?;
 
         if response.protocol_version != LATEST_PROTOCOL_VERSION {
             return Err(TransportError::new(

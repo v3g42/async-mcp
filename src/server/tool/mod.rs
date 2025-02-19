@@ -17,21 +17,17 @@ pub struct RegisteredTool {
 
 /// A callback that can execute a tool
 pub trait ToolCallback: Send + Sync {
-    fn call(
-        &self,
-        args: Option<Value>,
-    ) -> Pin<Box<dyn Future<Output = CallToolResponse> + Send>>;
+    fn call(&self, args: Option<Value>) -> ToolFuture;
 }
 
-struct ToolCallbackFn(
-    Box<dyn Fn(Option<Value>) -> Pin<Box<dyn Future<Output = CallToolResponse> + Send>> + Send + Sync>,
-);
+// Type aliases for complex future and callback types
+type ToolFuture = Pin<Box<dyn Future<Output = CallToolResponse> + Send>>;
+type ToolCallbackFunc = Box<dyn Fn(Option<Value>) -> ToolFuture + Send + Sync>;
+
+struct ToolCallbackFn(ToolCallbackFunc);
 
 impl ToolCallback for ToolCallbackFn {
-    fn call(
-        &self,
-        args: Option<Value>,
-    ) -> Pin<Box<dyn Future<Output = CallToolResponse> + Send>> {
+    fn call(&self, args: Option<Value>) -> ToolFuture {
         (self.0)(args)
     }
 }
@@ -116,11 +112,11 @@ impl ToolBuilder {
                 let args_result: Result<T, _> = match args {
                     Some(args) => {
                         serde_json::from_value(args)
-                            .map_err(|e| Self::error_response(e))
+                            .map_err(Self::error_response)
                     },
                     None => {
                         serde_json::from_value(serde_json::json!({}))
-                            .map_err(|e| Self::error_response(e))
+                            .map_err(Self::error_response)
                     }
                 };
                 match args_result {

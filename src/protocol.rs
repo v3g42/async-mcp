@@ -6,7 +6,6 @@ use super::types::ErrorCode;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::{
@@ -198,10 +197,7 @@ impl<T: Transport> ProtocolBuilder<T> {
     pub fn request_handler<Req, Resp>(
         mut self,
         method: &str,
-        handler: impl Fn(Req) -> Pin<Box<dyn std::future::Future<Output = Result<Resp>> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        handler: impl Fn(Req) -> RequestFuture<Resp> + Send + Sync + 'static,
     ) -> Self
     where
         Req: DeserializeOwned + Send + Sync + 'static,
@@ -224,10 +220,7 @@ impl<T: Transport> ProtocolBuilder<T> {
     pub fn notification_handler<N>(
         mut self,
         method: &str,
-        handler: impl Fn(N) -> Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        handler: impl Fn(N) -> NotificationFuture + Send + Sync + 'static,
     ) -> Self
     where
         N: DeserializeOwned + Send + Sync + 'static,
@@ -264,17 +257,23 @@ trait NotificationHandler: Send + Sync {
     async fn handle(&self, notification: JsonRpcNotification) -> Result<()>;
 }
 
+// Type aliases for complex future types
+type RequestFuture<T> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + Send>>;
+type NotificationFuture = RequestFuture<()>;
+
+/// Type alias for async request handler function type
+type AsyncRequestHandler<Req, Resp> = Box<dyn Fn(Req) -> RequestFuture<Resp> + Send + Sync>;
+
+/// Type alias for async notification handler function type
+type AsyncNotificationHandler<N> = Box<dyn Fn(N) -> NotificationFuture + Send + Sync>;
+
 // Update the TypedRequestHandler to use async handlers
 struct TypedRequestHandler<Req, Resp>
 where
     Req: DeserializeOwned + Send + Sync + 'static,
     Resp: Serialize + Send + Sync + 'static,
 {
-    handler: Box<
-        dyn Fn(Req) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Resp>> + Send>>
-            + Send
-            + Sync,
-    >,
+    handler: AsyncRequestHandler<Req, Resp>,
     _phantom: std::marker::PhantomData<(Req, Resp)>,
 }
 
@@ -307,11 +306,7 @@ struct TypedNotificationHandler<N>
 where
     N: DeserializeOwned + Send + Sync + 'static,
 {
-    handler: Box<
-        dyn Fn(N) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
-            + Send
-            + Sync,
-    >,
+    handler: AsyncNotificationHandler<N>,
     _phantom: std::marker::PhantomData<N>,
 }
 
