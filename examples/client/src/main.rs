@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
     #[cfg(unix)]
     {
         // Create transport connected to cat command which will stay alive
-        let transport = ClientStdioTransport::new("cat", &[])?;
+        let transport = ClientStdioTransport::new("cat", &[], None)?;
 
         // Open transport
         transport.open().await?;

@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
         TransportType::Stdio => {
             // Build the server first
             // cargo build --bin pingpong_server
-            let transport = ClientStdioTransport::new("./target/debug/pingpong", &[])?;
+            let transport = ClientStdioTransport::new("./target/debug/pingpong", &[], None)?;
             transport.open().await?;
             // Create and start client
             let client = async_mcp::client::ClientBuilder::new(transport.clone()).build();

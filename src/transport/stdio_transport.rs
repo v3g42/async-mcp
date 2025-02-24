@@ -1,6 +1,7 @@
 use super::{Message, Transport};
 use anyhow::Result;
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -57,16 +58,18 @@ pub struct ClientStdioTransport {
     child: Arc<Mutex<Option<Child>>>,
     program: String,
     args: Vec<String>,
+    env: Option<HashMap<String, String>>,
 }
 
 impl ClientStdioTransport {
-    pub fn new(program: &str, args: &[&str]) -> Result<Self> {
+    pub fn new(program: &str, args: &[&str], env: Option<HashMap<String, String>>) -> Result<Self> {
         Ok(ClientStdioTransport {
             stdin: Arc::new(Mutex::new(None)),
             stdout: Arc::new(Mutex::new(None)),
             child: Arc::new(Mutex::new(None)),
             program: program.to_string(),
             args: args.iter().map(|&s| s.to_string()).collect(),
+            env,
         })
     }
 }
@@ -112,11 +115,22 @@ impl Transport for ClientStdioTransport {
 
     async fn open(&self) -> Result<()> {
         debug!("ClientStdioTransport: Opening transport");
-        let mut child = tokio::process::Command::new(&self.program)
+        let mut command = tokio::process::Command::new(&self.program);
+
+        // Set up the command with args and stdio
+        command
             .args(&self.args)
             .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()?;
+            .stdout(Stdio::piped());
+
+        // Add environment variables
+        if let Some(env) = &self.env {
+            for (key, value) in env {
+                command.env(key, value.to_string());
+            }
+        }
+
+        let mut child = command.spawn()?;
 
         debug!("ClientStdioTransport: Child process spawned");
         let stdin = child
@@ -199,7 +213,7 @@ mod tests {
     #[cfg(unix)]
     async fn test_stdio_transport() -> Result<()> {
         // Create transport connected to cat command which will stay alive
-        let transport = ClientStdioTransport::new("cat", &[])?;
+        let transport = ClientStdioTransport::new("cat", &[], None)?;
 
         // Create a test message
         let test_message = JsonRpcMessage::Request(JsonRpcRequest {
@@ -231,8 +245,7 @@ mod tests {
     #[cfg(unix)]
     async fn test_graceful_shutdown() -> Result<()> {
         // Create transport with a sleep command that runs for 5 seconds
-
-        let transport = ClientStdioTransport::new("sleep", &["5"])?;
+        let transport = ClientStdioTransport::new("sleep", &["5"], None)?;
         transport.open().await?;
 
         // Spawn a task that will read from the transport
@@ -271,8 +284,7 @@ mod tests {
     #[cfg(unix)]
     async fn test_shutdown_with_pending_io() -> Result<()> {
         // Use 'read' command which will wait for input without echoing
-
-        let transport = ClientStdioTransport::new("read", &[])?;
+        let transport = ClientStdioTransport::new("read", &[], None)?;
         transport.open().await?;
 
         // Start a receive operation that will be pending
