@@ -62,6 +62,7 @@ fn register_tools(server: &mut ServerBuilder<ServerStdioTransport>) -> Result<()
            },
            "required":["entities"]
         }),
+        output_schema: None,
     };
 
     let kg_clone = kg.clone();
@@ -106,6 +107,7 @@ fn register_tools(server: &mut ServerBuilder<ServerStdioTransport>) -> Result<()
            },
            "required":["relations"]
         }),
+        output_schema: None,
     };
     let kg_clone = kg.clone();
     server.register_tool(description, move |req: CallToolRequest| {
@@ -151,6 +153,7 @@ fn register_tools(server: &mut ServerBuilder<ServerStdioTransport>) -> Result<()
             },
             "required": ["observations"]
         }),
+        output_schema: None,
     };
     let kg_clone = kg.clone();
     server.register_tool(description, move |req: CallToolRequest| {
@@ -187,6 +190,7 @@ fn register_tools(server: &mut ServerBuilder<ServerStdioTransport>) -> Result<()
             },
             "required": ["entityNames"]
         }),
+        output_schema: None,
     };
     let kg_clone = kg.clone();
     server.register_tool(description, move |req: CallToolRequest| {
@@ -233,6 +237,7 @@ fn register_tools(server: &mut ServerBuilder<ServerStdioTransport>) -> Result<()
             },
             "required": ["deletions"]
         }),
+        output_schema: None,
     };
     let kg_clone = kg.clone();
     server.register_tool(description, move |req: CallToolRequest| {
@@ -278,6 +283,7 @@ fn register_tools(server: &mut ServerBuilder<ServerStdioTransport>) -> Result<()
             },
             "required": ["relations"]
         }),
+        output_schema: None,
     };
     let kg_clone = kg.clone();
     server.register_tool(description, move |req: CallToolRequest| {
@@ -308,6 +314,7 @@ fn register_tools(server: &mut ServerBuilder<ServerStdioTransport>) -> Result<()
             "type": "object",
             "properties": {}
         }),
+        output_schema: None,
     };
     let kg_clone = kg.clone();
     server.register_tool(description, move |_req: CallToolRequest| {
@@ -333,6 +340,7 @@ fn register_tools(server: &mut ServerBuilder<ServerStdioTransport>) -> Result<()
             },
             "required": ["query"]
         }),
+        output_schema: None,
     };
     let kg_clone = kg.clone();
     server.register_tool(description, move |req: CallToolRequest| {
@@ -368,6 +376,7 @@ fn register_tools(server: &mut ServerBuilder<ServerStdioTransport>) -> Result<()
             },
             "required": ["names"]
         }),
+        output_schema: None,
     };
     let kg_clone = kg.clone();
     server.register_tool(description, move |req: CallToolRequest| {
