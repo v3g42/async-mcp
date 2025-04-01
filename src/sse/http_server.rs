@@ -54,9 +54,9 @@ where
     F: Fn(ServerHttpTransport) -> Fut + Send + Sync + 'static,
     Fut: futures::Future<Output = Result<Server<ServerHttpTransport>>> + Send + 'static,
 {
-    info!("Starting server on http://127.0.0.1:{}", port);
-    info!("WebSocket endpoint: ws://127.0.0.1:{}/ws", port);
-    info!("SSE endpoint: http://127.0.0.1:{}/sse", port);
+    info!("Starting server on http://0.0.0.0:{}", port);
+    info!("WebSocket endpoint: ws://0.0.0.0:{}/ws", port);
+    info!("SSE endpoint: http://0.0.0.0:{}/sse", port);
 
     let sessions = Arc::new(Mutex::new(HashMap::new()));
 
@@ -100,7 +100,7 @@ pub async fn http_server(
             .route("/message", web::post().to(message_handler))
             .route("/ws", web::get().to(ws_handler))
     })
-    .bind(("127.0.0.1", port))?
+    .bind(("0.0.0.0", port))?
     .run();
 
     server.await
