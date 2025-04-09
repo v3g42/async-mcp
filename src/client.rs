@@ -1,9 +1,11 @@
+use std::collections::HashMap;
+
 use crate::{
     protocol::{Protocol, ProtocolBuilder, RequestOptions},
     transport::Transport,
     types::{
         ClientCapabilities, Implementation, InitializeRequest, InitializeResponse,
-        LATEST_PROTOCOL_VERSION,
+        RootCapabilities, LATEST_PROTOCOL_VERSION,
     },
 };
 
@@ -23,7 +25,13 @@ impl<T: Transport> Client<T> {
     pub async fn initialize(&self, client_info: Implementation) -> Result<InitializeResponse> {
         let request = InitializeRequest {
             protocol_version: LATEST_PROTOCOL_VERSION.to_string(),
-            capabilities: ClientCapabilities::default(),
+            capabilities: ClientCapabilities {
+                experimental: Some(serde_json::json!({})),
+                sampling: Some(serde_json::json!({})),
+                roots: Some(RootCapabilities {
+                    list_changed: Some(false),
+                }),
+            },
             client_info,
         };
         let response = self

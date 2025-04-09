@@ -33,7 +33,6 @@ pub struct MessageQuery {
 #[derive(Clone)]
 pub struct SessionState {
     sessions: Arc<Mutex<HashMap<String, ServerHttpTransport>>>,
-    port: u16,
     build_server: Arc<
         dyn Fn(
                 ServerHttpTransport,
@@ -42,6 +41,28 @@ pub struct SessionState {
             + Send
             + Sync,
     >,
+    endpoint: String,
+}
+
+impl SessionState {
+    /// Create a new SessionState instance with configurable parameters
+    pub fn new(
+        endpoint: String,
+        build_server: Arc<
+            dyn Fn(
+                    ServerHttpTransport,
+                )
+                    -> futures::future::BoxFuture<'static, Result<Server<ServerHttpTransport>>>
+                + Send
+                + Sync,
+        >,
+    ) -> Self {
+        Self {
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            build_server,
+            endpoint,
+        }
+    }
 }
 
 /// Run a server instance with the specified transport
@@ -87,7 +108,7 @@ pub async fn http_server(
     let session_state = SessionState {
         sessions,
         build_server,
-        port,
+        endpoint: format!("http://0.0.0.0:{}", port),
     };
 
     let server = HttpServer::new(move || {
@@ -137,11 +158,10 @@ pub async fn sse_handler(
         "SSE connection established for {} with session_id {}",
         client_ip, session_id
     );
-    let port = session_state.port;
+    let endpoint = session_state.endpoint.clone();
     // Create initial endpoint info event
-    let endpoint_info = format!(
-        "event: endpoint\ndata: http://127.0.0.1:{port}/message?sessionId={session_id}\n\n",
-    );
+    let endpoint_info =
+        format!("event: endpoint\ndata: {endpoint}/message?sessionId={session_id}\n\n",);
 
     let stream = futures::stream::once(async move {
         Ok::<_, std::convert::Infallible>(web::Bytes::from(endpoint_info))
@@ -186,7 +206,7 @@ pub async fn sse_handler(
         .streaming(stream)
 }
 
-async fn message_handler(
+pub async fn message_handler(
     query: Query<MessageQuery>,
     message: web::Json<Message>,
     session_state: web::Data<SessionState>,
@@ -217,7 +237,7 @@ async fn message_handler(
     }
 }
 
-async fn ws_handler(
+pub async fn ws_handler(
     req: actix_web::HttpRequest,
     body: Payload,
     session_state: web::Data<SessionState>,

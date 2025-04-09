@@ -1,6 +1,5 @@
 use super::transport::{
-    JsonRpcError, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, Message,
-    Transport,
+    JsonRpcError, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, Transport,
 };
 use super::types::ErrorCode;
 use anyhow::anyhow;
@@ -90,7 +89,15 @@ impl<T: Transport> Protocol<T> {
     pub async fn listen(&self) -> Result<()> {
         debug!("Listening for requests");
         loop {
-            let message: Option<Message> = self.transport.receive().await?;
+            let message = self.transport.receive().await;
+
+            let message = match message {
+                Ok(msg) => msg,
+                Err(e) => {
+                    tracing::error!("Failed to parse message: {:?}", e);
+                    continue;
+                }
+            };
 
             // Exit loop when transport signals shutdown with None
             if message.is_none() {
