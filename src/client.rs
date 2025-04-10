@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{
     protocol::{Protocol, ProtocolBuilder, RequestOptions},
     transport::Transport,
