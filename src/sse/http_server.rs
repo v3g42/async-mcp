@@ -1,6 +1,7 @@
 use actix_web::middleware::Logger;
 use actix_web::web::Payload;
 use actix_web::web::Query;
+use actix_web::HttpMessage;
 use actix_web::{web, App, HttpResponse, HttpServer};
 use anyhow::Result;
 use futures::StreamExt;
@@ -24,6 +25,9 @@ pub struct Claims {
     pub iat: usize,
 }
 
+#[derive(Clone)]
+pub struct Endpoint(pub String);
+
 #[derive(Deserialize)]
 pub struct MessageQuery {
     #[serde(rename = "sessionId")]
@@ -36,6 +40,7 @@ pub struct SessionState {
     build_server: Arc<
         dyn Fn(
                 ServerHttpTransport,
+                Option<serde_json::Value>,
             )
                 -> futures::future::BoxFuture<'static, Result<Server<ServerHttpTransport>>>
             + Send
@@ -51,14 +56,16 @@ impl SessionState {
         build_server: Arc<
             dyn Fn(
                     ServerHttpTransport,
+                    Option<serde_json::Value>,
                 )
                     -> futures::future::BoxFuture<'static, Result<Server<ServerHttpTransport>>>
                 + Send
                 + Sync,
         >,
+        sessions: Arc<Mutex<HashMap<String, ServerHttpTransport>>>,
     ) -> Self {
         Self {
-            sessions: Arc::new(Mutex::new(HashMap::new())),
+            sessions,
             build_server,
             endpoint,
         }
@@ -72,7 +79,7 @@ pub async fn run_http_server<F, Fut>(
     build_server: F,
 ) -> Result<()>
 where
-    F: Fn(ServerHttpTransport) -> Fut + Send + Sync + 'static,
+    F: Fn(ServerHttpTransport, Option<serde_json::Value>) -> Fut + Send + Sync + 'static,
     Fut: futures::Future<Output = Result<Server<ServerHttpTransport>>> + Send + 'static,
 {
     info!("Starting server on http://0.0.0.0:{}", port);
@@ -83,7 +90,7 @@ where
 
     // Box the future when creating the Arc
     let build_server =
-        Arc::new(move |t| Box::pin(build_server(t)) as futures::future::BoxFuture<_>);
+        Arc::new(move |t, o| Box::pin(build_server(t, o)) as futures::future::BoxFuture<_>);
 
     let auth_config = jwt_secret.map(|jwt_secret| AuthConfig { jwt_secret });
     let http_server = http_server(port, sessions, auth_config, build_server);
@@ -99,6 +106,7 @@ pub async fn http_server(
     build_server: Arc<
         dyn Fn(
                 ServerHttpTransport,
+                Option<serde_json::Value>,
             )
                 -> futures::future::BoxFuture<'static, Result<Server<ServerHttpTransport>>>
             + Send
@@ -131,6 +139,8 @@ pub async fn sse_handler(
     req: actix_web::HttpRequest,
     session_state: web::Data<SessionState>,
 ) -> HttpResponse {
+    let endpoint = req.extensions().get::<Endpoint>().cloned();
+    let session_metadata = req.extensions().get::<serde_json::Value>().cloned();
     let client_ip = req
         .peer_addr()
         .map(|addr| addr.ip().to_string())
@@ -158,7 +168,7 @@ pub async fn sse_handler(
         "SSE connection established for {} with session_id {}",
         client_ip, session_id
     );
-    let endpoint = session_state.endpoint.clone();
+    let endpoint = endpoint.map_or(session_state.endpoint.clone(), |e| e.0);
     // Create initial endpoint info event
     let endpoint_info =
         format!("event: endpoint\ndata: {endpoint}/message?sessionId={session_id}\n\n",);
@@ -187,8 +197,9 @@ pub async fn sse_handler(
     // Create and start server instance for this session
     let transport_clone = transport.clone();
     let build_server = session_state.build_server.clone();
+    let session_metadata = session_metadata.clone();
     tokio::spawn(async move {
-        match build_server(transport_clone).await {
+        match build_server(transport_clone, session_metadata).await {
             Ok(server) => {
                 if let Err(e) = server.listen().await {
                     error!("Server error: {:?}", e);
@@ -242,6 +253,8 @@ pub async fn ws_handler(
     body: Payload,
     session_state: web::Data<SessionState>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    let session_metadata = req.extensions().get::<serde_json::Value>().cloned();
+
     let (response, session, msg_stream) = actix_ws::handle(&req, body)?;
 
     let client_ip = req
@@ -271,8 +284,9 @@ pub async fn ws_handler(
 
     // Spawn server instance
     let build_server = session_state.build_server.clone();
+    let session_metadata = session_metadata.clone();
     actix_web::rt::spawn(async move {
-        if let Ok(server) = build_server(transport).await {
+        if let Ok(server) = build_server(transport, session_metadata).await {
             let _ = server.listen().await;
         }
     });
