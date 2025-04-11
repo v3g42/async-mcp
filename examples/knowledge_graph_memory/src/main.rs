@@ -19,11 +19,10 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let mut server =
-        Server::builder(ServerStdioTransport::default()).capabilities(ServerCapabilities {
-            tools: Some(json!({})),
-            ..Default::default()
-        });
+    let mut server = Server::builder(ServerStdioTransport).capabilities(ServerCapabilities {
+        tools: Some(json!({})),
+        ..Default::default()
+    });
     register_tools(&mut server)?;
 
     let server = server.build();

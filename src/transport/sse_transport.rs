@@ -358,7 +358,7 @@ impl Transport for ClientSseTransport {
         let buffer = self.buffer.clone();
 
         let handle = tokio::spawn(async move {
-            let mut request = reqwest::Client::new().get(&format!("{}/sse", server_url));
+            let mut request = reqwest::Client::new().get(format!("{}/sse", server_url));
 
             // Add custom headers
             for (key, value) in &headers {
@@ -431,7 +431,6 @@ impl Transport for ClientSseTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::{JsonRpcMessage, JsonRpcRequest, JsonRpcVersion};
 
     #[test]
     fn test_parse_large_sse_message() {

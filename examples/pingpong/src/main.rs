@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
                 .map_err(|e| anyhow::anyhow!("Server error: {}", e))?;
         }
         TransportType::Http => {
-            run_http_server(3004, None, |transport| async move {
+            run_http_server(3004, None, |transport, _| async move {
                 let server = build_server(transport);
                 Ok(server)
             })

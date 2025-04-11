@@ -126,7 +126,7 @@ impl Transport for ClientStdioTransport {
         // Add environment variables
         if let Some(env) = &self.env {
             for (key, value) in env {
-                command.env(key, value.to_string());
+                command.env(key, value);
             }
         }
 
