@@ -91,8 +91,20 @@ impl Transport for ClientStdioTransport {
             debug!("ClientStdioTransport: Received EOF from process");
             return Ok(None);
         }
-        debug!("ClientStdioTransport: Received from process: {line}");
-        let message: Message = serde_json::from_str(&line)?;
+
+        let row = if line.len() > 1000 {
+            let start = &line[..100];
+            let end = &line[line.len() - 100..];
+            format!("{}...{}", start, end)
+        } else {
+            line.clone()
+        };
+        
+        debug!("ClientStdioTransport: Received from process: {}", row);
+        let message: Message = serde_json::from_str(&line).map_err(|e| {
+            tracing::error!("Failed to parse message: {}", e);
+            e
+        })?;
         debug!("ClientStdioTransport: Successfully parsed message");
         Ok(Some(message))
     }

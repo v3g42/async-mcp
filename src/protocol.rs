@@ -326,7 +326,10 @@ where
             if notification.params.is_none() || notification.params.as_ref().unwrap().is_null() {
                 serde_json::from_value(serde_json::Value::Null)?
             } else {
-                serde_json::from_value(notification.params.unwrap())?
+                match notification.params {
+                    Some(params) => serde_json::from_value(params)?,
+                    None => serde_json::from_value(serde_json::Value::Null)?,
+                }
             };
         (self.handler)(params).await
     }

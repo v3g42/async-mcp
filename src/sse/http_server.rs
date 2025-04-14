@@ -181,14 +181,21 @@ pub async fn sse_handler(
         async move {
             match rx.recv().await {
                 Ok(msg) => {
-                    debug!("Sending SSE message to {}: {:?}", client_ip, msg);
+                    // Show first and last 500 characters for debugging
                     let json = serde_json::to_string(&msg).unwrap();
+                    if json.len() > 1000 {
+                        let first = &json[..500];
+                        let last = &json[json.len() - 500..];
+                        debug!("Sending SSE message to {}: {}...{}", client_ip, first, last);
+                    } else {
+                        debug!("Sending SSE message to {}: {}", client_ip, json);
+                    }
                     let sse_data = format!("data: {}\n\n", json);
                     Some((
                         Ok::<_, std::convert::Infallible>(web::Bytes::from(sse_data)),
                         rx,
                     ))
-                }
+                }   
                 _ => None,
             }
         }
