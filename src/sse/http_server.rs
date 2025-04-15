@@ -13,6 +13,7 @@ use crate::transport::ServerHttpTransport;
 use crate::transport::{handle_ws_connection, Message, ServerSseTransport, ServerWsTransport};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info};
@@ -146,7 +147,7 @@ pub async fn sse_handler(
         .map(|addr| addr.ip().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    info!("New SSE connection request from {}", client_ip);
+    debug!("New SSE connection request from {}", client_ip);
 
     // Create new session
     let session_id = Uuid::new_v4().to_string();
@@ -164,7 +165,7 @@ pub async fn sse_handler(
         .unwrap()
         .insert(session_id.clone(), transport.clone());
 
-    info!(
+    debug!(
         "SSE connection established for {} with session_id {}",
         client_ip, session_id
     );
