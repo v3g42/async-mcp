@@ -326,8 +326,17 @@ where
             if notification.params.is_none() || notification.params.as_ref().unwrap().is_null() {
                 serde_json::from_value(serde_json::Value::Null)?
             } else {
-                match notification.params {
-                    Some(params) => serde_json::from_value(params)?,
+                match &notification.params {
+                    Some(params) => {
+                        let res = serde_json::from_value(params.clone());
+                        match res {
+                            Ok(r) => r,
+                            Err(e) => {
+                                tracing::warn!("Failed to parse notification params: {:?}. Params: {:?}", e, notification.params);
+                                serde_json::from_value(serde_json::Value::Null)?
+                            }
+                        }
+                    },
                     None => serde_json::from_value(serde_json::Value::Null)?,
                 }
             };
