@@ -42,6 +42,7 @@ pub struct SessionState {
         dyn Fn(
                 ServerHttpTransport,
                 Option<serde_json::Value>,
+                String,
             )
                 -> futures::future::BoxFuture<'static, Result<Server<ServerHttpTransport>>>
             + Send
@@ -58,6 +59,7 @@ impl SessionState {
             dyn Fn(
                     ServerHttpTransport,
                     Option<serde_json::Value>,
+                    String,
                 )
                     -> futures::future::BoxFuture<'static, Result<Server<ServerHttpTransport>>>
                 + Send
@@ -80,7 +82,7 @@ pub async fn run_http_server<F, Fut>(
     build_server: F,
 ) -> Result<()>
 where
-    F: Fn(ServerHttpTransport, Option<serde_json::Value>) -> Fut + Send + Sync + 'static,
+    F: Fn(ServerHttpTransport, Option<serde_json::Value>, String) -> Fut + Send + Sync + 'static,
     Fut: futures::Future<Output = Result<Server<ServerHttpTransport>>> + Send + 'static,
 {
     info!("Starting server on http://0.0.0.0:{}", port);
@@ -90,8 +92,9 @@ where
     let sessions = Arc::new(Mutex::new(HashMap::new()));
 
     // Box the future when creating the Arc
-    let build_server =
-        Arc::new(move |t, o| Box::pin(build_server(t, o)) as futures::future::BoxFuture<_>);
+    let build_server = Arc::new(move |t, o, session_id| {
+        Box::pin(build_server(t, o, session_id)) as futures::future::BoxFuture<_>
+    });
 
     let auth_config = jwt_secret.map(|jwt_secret| AuthConfig { jwt_secret });
     let http_server = http_server(port, sessions, auth_config, build_server);
@@ -108,6 +111,7 @@ pub async fn http_server(
         dyn Fn(
                 ServerHttpTransport,
                 Option<serde_json::Value>,
+                String,
             )
                 -> futures::future::BoxFuture<'static, Result<Server<ServerHttpTransport>>>
             + Send
@@ -196,7 +200,7 @@ pub async fn sse_handler(
                         Ok::<_, std::convert::Infallible>(web::Bytes::from(sse_data)),
                         rx,
                     ))
-                }   
+                }
                 _ => None,
             }
         }
@@ -206,8 +210,9 @@ pub async fn sse_handler(
     let transport_clone = transport.clone();
     let build_server = session_state.build_server.clone();
     let session_metadata = session_metadata.clone();
+    let ses_id = session_id.clone();
     tokio::spawn(async move {
-        match build_server(transport_clone, session_metadata).await {
+        match build_server(transport_clone, session_metadata, ses_id.clone()).await {
             Ok(server) => {
                 if let Err(e) = server.listen().await {
                     error!("Server error: {:?}", e);
@@ -283,7 +288,7 @@ pub async fn ws_handler(
         .sessions
         .lock()
         .unwrap()
-        .insert(session_id, transport.clone());
+        .insert(session_id.clone(), transport.clone());
 
     // Start WebSocket handling in the background
     actix_web::rt::spawn(async move {
@@ -294,7 +299,7 @@ pub async fn ws_handler(
     let build_server = session_state.build_server.clone();
     let session_metadata = session_metadata.clone();
     actix_web::rt::spawn(async move {
-        if let Ok(server) = build_server(transport, session_metadata).await {
+        if let Ok(server) = build_server(transport, session_metadata, session_id.clone()).await {
             let _ = server.listen().await;
         }
     });

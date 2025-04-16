@@ -332,11 +332,15 @@ where
                         match res {
                             Ok(r) => r,
                             Err(e) => {
-                                tracing::warn!("Failed to parse notification params: {:?}. Params: {:?}", e, notification.params);
+                                tracing::warn!(
+                                    "Failed to parse notification params: {:?}. Params: {:?}",
+                                    e,
+                                    notification.params
+                                );
                                 serde_json::from_value(serde_json::Value::Null)?
                             }
                         }
-                    },
+                    }
                     None => serde_json::from_value(serde_json::Value::Null)?,
                 }
             };
