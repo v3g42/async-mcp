@@ -1,6 +1,5 @@
 use super::transport::{
-    JsonRpcError, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, Message,
-    Transport,
+    JsonRpcError, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, Transport,
 };
 use super::types::ErrorCode;
 use anyhow::anyhow;
@@ -90,7 +89,15 @@ impl<T: Transport> Protocol<T> {
     pub async fn listen(&self) -> Result<()> {
         debug!("Listening for requests");
         loop {
-            let message: Option<Message> = self.transport.receive().await?;
+            let message = self.transport.receive().await;
+
+            let message = match message {
+                Ok(msg) => msg,
+                Err(e) => {
+                    tracing::error!("Failed to parse message: {:?}", e);
+                    continue;
+                }
+            };
 
             // Exit loop when transport signals shutdown with None
             if message.is_none() {
@@ -319,7 +326,23 @@ where
             if notification.params.is_none() || notification.params.as_ref().unwrap().is_null() {
                 serde_json::from_value(serde_json::Value::Null)?
             } else {
-                serde_json::from_value(notification.params.unwrap())?
+                match &notification.params {
+                    Some(params) => {
+                        let res = serde_json::from_value(params.clone());
+                        match res {
+                            Ok(r) => r,
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to parse notification params: {:?}. Params: {:?}",
+                                    e,
+                                    notification.params
+                                );
+                                serde_json::from_value(serde_json::Value::Null)?
+                            }
+                        }
+                    }
+                    None => serde_json::from_value(serde_json::Value::Null)?,
+                }
             };
         (self.handler)(params).await
     }

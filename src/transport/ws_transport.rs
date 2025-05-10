@@ -150,7 +150,7 @@ impl Transport for ClientWsTransport {
         let text = serde_json::to_string(message)?;
         if let Some(write) = self.ws_write.lock().await.as_mut() {
             debug!("Client sending message: {}", text);
-            write.send(TungsteniteMessage::Text(text.into())).await?;
+            write.send(TungsteniteMessage::Text(text)).await?;
         } else {
             debug!("Client send called but writer is None");
         }

@@ -94,7 +94,15 @@ impl Transport for ServerSseTransport {
 
     async fn send(&self, message: &Message) -> Result<()> {
         let formatted = Self::format_sse_message(message)?;
-        debug!("Sending chunked SSE message: {}", formatted);
+        // Show first and last 500 characters for debugging
+        if formatted.len() > 1000 {
+            let first = &formatted[..500];
+            let last = &formatted[formatted.len() - 500..];
+            debug!("Sending chunked SSE message: {}...{}", first, last);
+        } else {
+            debug!("Sending chunked SSE message: {}", formatted);
+        }
+        
         self.sse_tx.send(message.clone())?;
         Ok(())
     }
@@ -358,7 +366,7 @@ impl Transport for ClientSseTransport {
         let buffer = self.buffer.clone();
 
         let handle = tokio::spawn(async move {
-            let mut request = reqwest::Client::new().get(&format!("{}/sse", server_url));
+            let mut request = reqwest::Client::new().get(format!("{}/sse", server_url));
 
             // Add custom headers
             for (key, value) in &headers {
@@ -431,7 +439,6 @@ impl Transport for ClientSseTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::{JsonRpcMessage, JsonRpcRequest, JsonRpcVersion};
 
     #[test]
     fn test_parse_large_sse_message() {
